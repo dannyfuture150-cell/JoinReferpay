@@ -19,13 +19,27 @@ const isUnique = (e) => !!e && (e.code === '23505' || /unique/i.test(e.message |
 const balanceOf = async (id, c = q) =>
   (await c('SELECT COALESCE(SUM(amount),0)::int AS b FROM ledger WHERE member_id=$1', [id])).rows[0].b;
 
-// New rewards can only be withdrawn after a waiting period (default 24 hours, set REWARD_HOLD_HOURS; 0 = no wait).
-// This gives Paystack time to settle sign-up payments into your balance before members can take rewards out.
-const holdMs = () => envNum(process.env.REWARD_HOLD_HOURS, 24) * 3600e3;
-// total = everything the member is owed, pending = rewards still inside the waiting period,
+// New earnings are PENDING until 12:00 am (midnight). Then they move into the member's available balance and can be withdrawn.
+// (Ghana uses GMT all year, so midnight is UTC midnight. Set RELEASE_UTC_OFFSET_HOURS if you ever need a different clock.)
+// For testing, REWARD_HOLD_HOURS switches to a rolling wait instead (for example 24 = a day after each reward, 0 = no wait).
+const midnightMode = () => { const h = process.env.REWARD_HOLD_HOURS; return h === undefined || String(h).trim() === ''; };
+function holdCutoff(nowMs = Date.now()) {
+  if (!midnightMode()) return new Date(nowMs - Number(process.env.REWARD_HOLD_HOURS) * 3600e3).toISOString();
+  const off = envNum(process.env.RELEASE_UTC_OFFSET_HOURS, 0) * 3600e3;
+  const d = new Date(nowMs + off); d.setUTCHours(0, 0, 0, 0);
+  return new Date(d.getTime() - off).toISOString(); // the start of today: anything earned since then is still pending
+}
+// When the pending money is next released.
+async function nextRelease(memberId) {
+  const cutoff = holdCutoff();
+  if (midnightMode()) return new Date(Date.parse(cutoff) + 24 * 3600e3).toISOString();
+  const r = (await q("SELECT MIN(created) AS m FROM ledger WHERE member_id=$1 AND kind IN ('reward','bonus','cycle','coin_cash') AND created > $2", [memberId, cutoff])).rows[0].m;
+  return r ? new Date(Date.parse(r) + Number(process.env.REWARD_HOLD_HOURS) * 3600e3).toISOString() : null;
+}
+// total = everything the member is owed, pending = earnings still waiting for 12:00 am,
 // available = what they can withdraw right now.
 async function balances(id, c = q) {
-  const cutoff = new Date(Date.now() - holdMs()).toISOString();
+  const cutoff = holdCutoff();
   const r = (await c(`SELECT COALESCE(SUM(amount),0)::int AS total,
       COALESCE(SUM(CASE WHEN kind IN ('reward','bonus','cycle','coin_cash') AND created > $2 THEN amount ELSE 0 END),0)::int AS pending
     FROM ledger WHERE member_id=$1`, [id, cutoff])).rows[0];
@@ -56,9 +70,11 @@ async function fulfill(reference, amountPaid) {
   const p = (await q('SELECT * FROM purchases WHERE reference=$1', [reference])).rows[0];
   if (!p) return { ok: false, reason: 'unknown reference' };
   if (p.status === 'paid') return { ok: true, already: true };
+  if (p.status === 'rejected') return { ok: false, reason: 'rejected' };
   if (amountPaid < p.amount) return { ok: false, reason: 'amount too low' };
+  let earnedRows = [];
   await tx(async (c) => {
-    const upd = await c("UPDATE purchases SET status='paid' WHERE id=$1 AND status='pending'", [p.id]);
+    const upd = await c("UPDATE purchases SET status='paid' WHERE id=$1 AND status IN ('pending','submitted')", [p.id]);
     if (upd.rowCount !== 1) return;
     const prior = (await c("SELECT COUNT(*)::int AS n FROM purchases WHERE member_id=$1 AND status='paid' AND id<>$2", [p.member_id, p.id])).rows[0].n;
     await c('UPDATE members SET active=1 WHERE id=$1', [p.member_id]);
@@ -101,6 +117,7 @@ async function fulfill(reference, amountPaid) {
     }
     for (const u of ups) await c('UPDATE members SET left_active=$2,right_active=$3,bonus_stage=$4,first_leg=$5,base_left=$6,base_right=$7,cycles_paid=$8 WHERE id=$1', u);
     if (!earn.length) return;
+    earnedRows = earn.map((e) => ({ memberId: e[0], kind: e[1], amount: e[2] }));
     const vals = [], params = [];
     earn.forEach((e, i) => {
       const o = i * 7;
@@ -109,7 +126,7 @@ async function fulfill(reference, amountPaid) {
     });
     await c(`INSERT INTO ledger(member_id,kind,amount,ref,src_id,level,created) VALUES ${vals.join(',')} ON CONFLICT (ref) DO NOTHING`, params);
   });
-  return { ok: true };
+  return { ok: true, earned: earnedRows, buyerId: p.member_id }; // the server emails the people who earned
 }
 
 // Sign-up is paid BEFORE the account exists. The account is created here, only after Paystack confirms the payment.
@@ -201,16 +218,17 @@ async function refundPayout(id) {
 // it twice), then the transfer is sent. If Paystack definitely did not accept it, the money goes back.
 // If it is unclear (e.g. a network error after sending), nothing is refunded and the Paystack webhook decides.
 // Takes a withdrawal off the member's balance and records it. Shared by instant (Paystack) and manual withdrawals.
-async function holdPayout(memberId, gross, { fee, min, status, reference }) {
+async function holdPayout(memberId, gross, { fee, min, status, reference, number, network }) {
   if (!Number.isInteger(gross) || gross < min || gross - fee < 100) return { ok: false, code: 'min' };
-  const who = (await q('SELECT active FROM members WHERE id=$1', [memberId])).rows[0];
+  const who = (await q('SELECT active,phone,network FROM members WHERE id=$1', [memberId])).rows[0];
   if (!who || !who.active) return { ok: false, code: 'inactive' };
+  const toNumber = number || who.phone, toNetwork = network || who.network; // the member chooses where the money goes
   const got = await tx(async (c) => {
     await c('SELECT id FROM members WHERE id=$1 FOR UPDATE', [memberId]);
     const b = await balances(memberId, c);
     if (b.available < gross) return { code: b.total >= gross ? 'pending' : 'balance' }; // 'pending' = still in the waiting period
-    const r = await c('INSERT INTO payouts(member_id,amount,fee,status,reference,created) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
-      [memberId, gross, fee, status, reference, now()]);
+    const r = await c('INSERT INTO payouts(member_id,amount,fee,status,reference,momo_number,momo_network,created) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [memberId, gross, fee, status, reference, toNumber, toNetwork, now()]);
     const pid = r.rows[0].id;
     await c('INSERT INTO ledger(member_id,kind,amount,ref,created) VALUES($1,$2,$3,$4,$5)', [memberId, 'payout_hold', -gross, 'hold:' + pid, now()]);
     return { id: pid };
@@ -220,7 +238,7 @@ async function holdPayout(memberId, gross, { fee, min, status, reference }) {
 }
 
 // MANUAL mode: the withdrawal waits for the merchant, who sends the money by hand and then marks it paid.
-const requestWithdrawal = (memberId, gross, { fee, min }) => holdPayout(memberId, gross, { fee, min, status: 'pending', reference: null });
+const requestWithdrawal = (memberId, gross, { fee, min, number, network }) => holdPayout(memberId, gross, { fee, min, status: 'pending', reference: null, number, network });
 async function markPayoutPaid(id) {
   return (await q("UPDATE payouts SET status='paid' WHERE id=$1 AND status='pending'", [id])).rowCount === 1;
 }
@@ -240,19 +258,45 @@ async function rejectSignup(id) {
   return (await q("UPDATE signups SET status='rejected' WHERE id=$1 AND status IN ('pending','submitted')", [id])).rowCount === 1;
 }
 
+// MANUAL mode, for an account that exists but has not paid yet (for example one made before payment was moved into sign-up):
+// the member sends the money by MoMo and gives the transaction ID, and the merchant approves it in the admin page.
+async function submitActivationPayment(memberId, txnId, amount) {
+  const m = (await q('SELECT id,active FROM members WHERE id=$1', [memberId])).rows[0];
+  if (!m) return { code: 'unknown' };
+  if (m.active) return { code: 'active' };
+  if ((await q('SELECT 1 FROM signups WHERE txn_id=$1 UNION SELECT 1 FROM purchases WHERE txn_id=$1 AND member_id<>$2', [txnId, memberId])).rows.length) return { code: 'dup' };
+  let p = (await q("SELECT * FROM purchases WHERE member_id=$1 AND status IN ('pending','submitted') ORDER BY id DESC LIMIT 1", [memberId])).rows[0];
+  if (!p) {
+    const reference = 'RA' + crypto.randomInt(100000, 999999) + crypto.randomBytes(2).toString('hex');
+    p = (await q('INSERT INTO purchases(member_id,reference,amount,status,created) VALUES($1,$2,$3,$4,$5) RETURNING *', [memberId, reference, amount, 'pending', now()])).rows[0];
+  }
+  try { await q("UPDATE purchases SET txn_id=$1, status='submitted' WHERE id=$2", [txnId, p.id]); }
+  catch (e) { if (isUnique(e)) return { code: 'dup' }; throw e; }
+  return { ok: true, purchase: p };
+}
+// The owner's own (first) account does not have to pay the merchant, which is the owner. Only an unpaid account at the very top of
+// the tree (no one above it) can be switched on this way, so nobody can skip paying while sitting under someone else.
+async function activateRoot(id) {
+  return (await q('UPDATE members SET active=1 WHERE id=$1 AND active=0 AND parent_id IS NULL', [id])).rowCount === 1;
+}
+async function rejectActivation(id) {
+  return (await q("UPDATE purchases SET status='rejected' WHERE id=$1 AND status='submitted'", [id])).rowCount === 1;
+}
+
 // INSTANT mode: withdraw from the Paystack balance.
-async function withdraw(memberId, gross, { ps, fee, min }) {
+async function withdraw(memberId, gross, { ps, fee, min, number, network }) {
   const reference = 'rp_payout_' + crypto.randomBytes(8).toString('hex');
-  const held = await holdPayout(memberId, gross, { fee, min, status: 'processing', reference });
+  const held = await holdPayout(memberId, gross, { fee, min, status: 'processing', reference, number, network });
   if (!held.ok) return held;
   const id = held.id;
   const m = (await q('SELECT * FROM members WHERE id=$1', [memberId])).rows[0];
   try {
-    let code = m.recipient_code;
+    const to = number || m.phone, net = network || m.network, same = to === m.phone && net === m.network;
+    let code = same ? m.recipient_code : null; // a different number gets its own one-off recipient
     if (!code) {
-      const rec = await ps.recipient({ type: 'mobile_money', name: m.name, account_number: m.phone, bank_code: NETWORKS[m.network], currency: 'GHS' });
+      const rec = await ps.recipient({ type: 'mobile_money', name: m.name, account_number: to, bank_code: NETWORKS[net], currency: 'GHS' });
       code = rec.recipient_code;
-      await q('UPDATE members SET recipient_code=$1 WHERE id=$2', [code, memberId]);
+      if (same) await q('UPDATE members SET recipient_code=$1 WHERE id=$2', [code, memberId]);
     }
     const t = await ps.transfer({ source: 'balance', amount: gross - fee, recipient: code, reference, reason: 'ReferPay withdrawal', currency: 'GHS' });
     if (t.status === 'otp') throw new Error('Paystack wants an OTP. Turn off "Confirm transfers before sending" in Paystack Preferences.');
@@ -308,6 +352,32 @@ async function withdrawalTotals(memberId) {
     FROM payouts WHERE member_id=$1`, [memberId])).rows[0];
 }
 
+// ---- Password reset: a short code sent by text and email (or given by the merchant), valid for a few minutes ----
+const codeHash = (memberId, code) => crypto.createHmac('sha256', process.env.SESSION_SECRET || '').update(memberId + ':' + code).digest('hex');
+async function createResetCode(memberId, minutes = 15, skipLimit = false) {
+  const since = new Date(Date.now() - 3600e3).toISOString();
+  if (!skipLimit && (await q('SELECT COUNT(*)::int AS n FROM password_resets WHERE member_id=$1 AND created > $2', [memberId, since])).rows[0].n >= 3) return { error: 'rate' };
+  await q('UPDATE password_resets SET used=1 WHERE member_id=$1 AND used=0', [memberId]); // only the newest code works
+  const code = String(crypto.randomInt(100000, 1000000));
+  await q('INSERT INTO password_resets(member_id,code_hash,expires,created) VALUES($1,$2,$3,$4)',
+    [memberId, codeHash(memberId, code), new Date(Date.now() + minutes * 60e3).toISOString(), now()]);
+  return { code };
+}
+// Checks the code (5 tries per code), sets the new password, and signs the member out everywhere (token_ver + 1).
+async function completeReset(memberId, code, passHash) {
+  return tx(async (c) => {
+    const r = (await c('SELECT * FROM password_resets WHERE member_id=$1 AND used=0 ORDER BY id DESC LIMIT 1 FOR UPDATE', [memberId])).rows[0];
+    if (!r || r.expires < now() || r.attempts >= 5) return { ok: false };
+    if (!crypto.timingSafeEqual(Buffer.from(r.code_hash, 'hex'), Buffer.from(codeHash(memberId, String(code)), 'hex'))) {
+      await c('UPDATE password_resets SET attempts=attempts+1 WHERE id=$1', [r.id]);
+      return { ok: false };
+    }
+    await c('UPDATE members SET pass_hash=$2, token_ver=token_ver+1 WHERE id=$1', [memberId, passHash]);
+    await c('UPDATE password_resets SET used=1 WHERE member_id=$1', [memberId]);
+    return { ok: true };
+  });
+}
+
 // Everyone below a member at any depth, combined, with which side (leg) they are on, whether the member
 // sponsored them directly, and how much the member earned from them.
 async function downlines(id) {
@@ -319,4 +389,4 @@ async function downlines(id) {
     FROM d ORDER BY leg,lvl,name`, [id])).rows;
 }
 
-module.exports = { normPhone, envNum, NETWORKS, now, balanceOf, balances, holdMs, place, fulfill, completeSignup, processPayment, createMember, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup };
+module.exports = { createResetCode, completeReset, normPhone, envNum, NETWORKS, now, balanceOf, balances, holdCutoff, nextRelease, midnightMode, place, fulfill, completeSignup, processPayment, createMember, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup };

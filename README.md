@@ -5,7 +5,7 @@ Binary (left/right) referral platform. A new person **pays the one-time GH₵50 
 nobody can look around before paying. Paying activates the account and rewards the active members above them,
 all the way to the top. Only active members earn rewards, sponsor new people, or withdraw.
 
-The sign-up form tells people plainly where the GH₵50 goes: up to GH₵20 is paid out as rewards to members above
+The sign-up form tells people plainly where the GH₵50 goes: up to GH₵30 is paid out as rewards to members above
 them, and the rest covers platform costs and running the business. Keep that description truthful. Do not call
 the fee only "maintenance" if most of it funds rewards, because that is misleading and can break
 consumer-protection law and Paystack's rules.
@@ -13,14 +13,13 @@ consumer-protection law and Paystack's rules.
 Rewards (members must be active, which means they have paid):
 - **First referral:** GH₵5 when the first person you referred with your code pays.
 - **Second referral:** another GH₵5 when someone you referred pays on your **other** side (GH₵10 in total).
-- **Pair bonus:** after that, GH₵3 every time **2 new people join your left side and 2 new people join your right side**,
+- **Pair bonus:** after that, GH₵5 every time **2 new people join your left side and 2 new people join your right side**,
   even if you did not refer them. People anywhere below you count (spillover and deeper members), but only those within the
   nearest 20 levels (`REWARD_MAX_LEVELS`), which keeps the cost per sign-up bounded.
 
-Members see all their downlines combined. New earnings can be **withdrawn 24 hours after they are earned** (set
-`REWARD_HOLD_HOURS`, 0 = no wait). After that they can **withdraw any amount (from GH₵5) at any time** to their
-mobile money, straight from your Paystack balance. The waiting period gives Paystack time to settle sign-up
-payments into your balance before rewards leave it. Rewards are paid on real product purchases, never on sign-ups alone.
+Members see all their downlines combined. New earnings stay **pending until 12:00 am (midnight)**, when they move into the
+member's available balance. After that they can **withdraw any amount (from GH₵5) at any time** to their
+mobile money, straight from your Paystack balance. The wait gives you time to confirm payments before rewards can leave. Rewards are paid on real product purchases, never on sign-ups alone.
 
 ## Read this first: the free setup is for TESTING
 - **Render's free web service goes to sleep** after about 15 minutes with no visitors and takes about a minute to wake.
@@ -41,7 +40,7 @@ payments into your balance before rewards leave it. Rewards are paid on real pro
    - `PAYSTACK_SECRET_KEY`: your `sk_test_...` key
    - `SESSION_SECRET` and `ADMIN_KEY`: long random strings (the Blueprint generates them; view them in the Environment tab)
    - `NODE_VERSION`: `20`
-   - optional: `REWARD_HOLD_HOURS`, `PRODUCT_PRICE_GHS`, `PAYOUT_MIN_GHS`, `WITHDRAW_FEE_GHS`, `REQUIRE_REFERRAL`, `REWARD_MAX_LEVELS`
+   - optional: `PRODUCT_PRICE_GHS`, `PAYOUT_MIN_GHS`, `WITHDRAW_FEE_GHS`, `REQUIRE_REFERRAL`, `REWARD_MAX_LEVELS`
 4. When Render gives you your address (like `https://referpay.onrender.com`), you do not need to set `BASE_URL`
    (the app reads Render's address), but you can set it if you use your own domain.
 5. Open your address. Sign up the **first member** without a referral code and pay the GH₵50 (a test payment in test
@@ -94,6 +93,8 @@ Until a payment provider approves you, the app runs in **manual mode** (`PAYMENT
 - **Staying safe:** approve only after the money and the same transaction ID show in your own MoMo app, never from a
   screenshot. Each transaction ID can only be used once. Mark a withdrawal paid only after you have sent it.
   Keep your admin key private. Everyone's money sits in your wallet, so keep what members are owed separate from yours.
+- **Accounts that exist but have not paid** (for example made before payment moved into sign-up) see a pay-by-MoMo screen too. They send
+  the money, enter the transaction ID, and you approve them under **Account activations to confirm** in the admin page.
 - **Later:** when Paystack approves you, set `PAYMENT_MODE=paystack` and add `PAYSTACK_SECRET_KEY`. Payments and withdrawals then become automatic.
 
 ## WhatsApp channel and support
@@ -101,21 +102,44 @@ The Home page has a **Join our WhatsApp channel** button (set `WHATSAPP_CHANNEL_
 `https://whatsapp.com/channel/...`; leave it blank to hide the button) and a **Contact support on WhatsApp** button that opens a
 chat with `SUPPORT_WHATSAPP` (default 0200835049) with the member's name and referral code already typed in.
 
+## Midnight release, FAQ and WhatsApp cards
+- **12:00 am release:** earnings made today are pending and join the available balance at midnight (Ghana is on GMT all year, so this is
+  UTC midnight; change `RELEASE_UTC_OFFSET_HOURS` if you ever need to). Do **not** set `REWARD_HOLD_HOURS` on the live site: it switches to a
+  rolling wait meant for testing (0 = no wait).
+- **FAQ:** a FAQ tab for members, and a "Read the FAQ" link on the sign-in page for visitors. The numbers in the answers come from the server,
+  so they always match the real rules. The wording is in `faqHtml` in `index.html`.
+- **WhatsApp:** the Home page has a separate card for the channel and another for support.
+
+## Password reset, withdrawal number and emails to members
+- **Withdrawal number:** the Withdraw tab asks which MoMo number and network the money should go to, filled in with the one on the account. A **different**
+  number needs the member's password. The number is saved with each withdrawal, and the admin page shows it.
+- **Forgot password:** on the sign-in page. The member enters their phone number and gets a 6-digit code (valid 15 minutes, 5 tries, 3 codes an hour) by
+  **SMS** (Arkesel) and **email**. A reset signs them out everywhere. If no code arrives, give them one from the admin page (**Reset a member's password**,
+  valid 30 minutes) over WhatsApp.
+- **Emails to members:** they get an email when they send their payment details, when it is confirmed, when they earn a bonus, when coins are converted, and when a
+  withdrawal is requested, sent or rejected. Choose ONE email provider in Render:
+  - **Brevo (free, works on Render's free plan, can email any member):** create a free account at brevo.com, verify a sender address, create an API key, and set
+    `BREVO_API_KEY`, `EMAIL_FROM_EMAIL` (the verified sender) and optionally `EMAIL_FROM_NAME`. Free limit: 300 emails a day. A sender on gmail.com can end up in Spam; your own domain is better.
+  - **Resend:** its free plan only delivers to YOUR OWN address until you verify a domain, so it cannot email members yet.
+  - **Gmail SMTP:** needs a PAID Render plan (the free plan blocks the ports).
+  Set `EMAIL_MEMBERS=false` to stop member emails. Without any provider nothing is sent and the app still works. Each sign-up can email several people, so watch the daily limit.
+
 ## Coins
 Every **3 paid people who join with a member's own code** earns that member **1 coin**, even if those people end up
-under someone else in the tree. **3 coins convert to GH₵5** (button on the Home page). Coins are worked out from
-the member's own referrals, so they can't get out of step, and converted cash follows the same 24-hour wait. Change the
-numbers in `commissions.js` (`REFERRALS_PER_COIN`, `COINS_PER_CASHOUT`, `COIN_CASHOUT`). Nine referrals earn GH₵5,
+under someone else in the tree. **3 coins convert to GH₵10** (button on the Home page). Coins are worked out from
+the member's own referrals, so they can't get out of step, and converted cash follows the same midnight release. Change the
+numbers in `commissions.js` (`REFERRALS_PER_COIN`, `COINS_PER_CASHOUT`, `COIN_CASHOUT`). Nine referrals earn GH₵10,
 so this costs little next to the rewards.
 
 ## 5. Change the rewards
-Edit `commissions.js`: `FIRST_REFERRAL`, `SECOND_REFERRAL`, `CYCLE_BONUS` (pesewas, 300 = GH₵3),
+Edit `commissions.js`: `FIRST_REFERRAL`, `SECOND_REFERRAL`, `CYCLE_BONUS` (pesewas, 500 = GH₵5),
 `CYCLE_PEOPLE_PER_SIDE` (2), and `MAX_LEVELS` (also set by `REWARD_MAX_LEVELS`, default 20). Product price: `PRODUCT_PRICE_GHS`.
 
 **Check your margins.** Every sign-up can complete a pair bonus for each member above it (within 20 levels), so on average
-each sign-up costs up to about GH₵3 / 4 = GH₵0.75 per level above it, up to about GH₵15 over 20 levels, plus up to GH₵5
-for the sponsor: **about GH₵20 of each GH₵50**, and the cost per sign-up rises as the network gets deeper. Lowering
-`REWARD_MAX_LEVELS` lowers the cap. A daily cap on pair bonuses per member is also common; ask if you want one added.
+each sign-up costs up to about GH₵5 / 4 = GH₵1.25 per level above it, up to about GH₵25 over 20 levels, plus up to GH₵5
+for the sponsor: **about GH₵30 of each GH₵50**, and the cost per sign-up rises as the network gets deeper. Coins add roughly GH₵1
+per referral on top. That leaves about GH₵19 of each GH₵50 for platform costs and you. Lowering `REWARD_MAX_LEVELS` (for example to 10) lowers
+the cap to about GH₵18.75.
 
 ## 6. Run the tests
 `npm install`, then create a SEPARATE empty Postgres database (a Neon branch works) and run:

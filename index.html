@@ -34,6 +34,7 @@ a.lnk{color:var(--accent);font-weight:600;cursor:pointer}
 .sd{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;border-radius:6px;background:var(--line);font-size:11px;font-weight:700;margin-right:6px}
 a.btn{display:block;text-align:center;text-decoration:none;padding:13px;border-radius:10px;background:var(--accent);color:var(--accent-t);font-weight:600}
 a.btn.alt{background:transparent;color:var(--text);border:1px solid var(--line)}
+details.faq{border-top:1px solid var(--line)}details.faq summary{cursor:pointer;padding:12px 0;font-weight:600}details.faq p{margin:0 0 12px}
 </style>
 </head>
 <body>
@@ -62,7 +63,7 @@ async function api(path, body) {
   return j;
 }
 
-const tabs = [["home", "Home"], ["downlines", "Downlines"], ["tree", "Tree"], ["earnings", "Earnings"], ["payout", "Withdraw"]];
+const tabs = [["home", "Home"], ["downlines", "Downlines"], ["tree", "Tree"], ["earnings", "Earnings"], ["payout", "Withdraw"], ["faq", "FAQ"]];
 const route = () => { const h = (location.hash || "#home").slice(1); return tabs.some((t) => t[0] === h) ? h : "home"; };
 const refParam = new URLSearchParams(location.search).get("ref") || "";
 
@@ -104,6 +105,60 @@ function waitView(p) {
   };
 }
 
+// Frequently asked questions. Numbers come from the server, so they always match the real rules.
+function faqHtml(c, m) {
+  const r = c.rules || {}, sp = c.support || {}, M = money;
+  const items = [
+    ["How do I join?", `1) Get a referral code from the person who invited you. 2) Tap Create an account, fill in the form, enter the code and choose Left or Right. 3) Send ${M(c.price)} by mobile money to the merchant shown on the pay screen and enter your MoMo transaction ID. 4) Wait for the merchant to confirm. Then log in.`],
+    ["How much does it cost and where does the money go?", `Joining is a one-time ${M(c.price)}. Up to about ${M(c.rewardMax)} of it is paid out as rewards to members above you. The rest covers platform costs and running the business.`],
+    ["How long until my account is activated?", "The merchant checks your payment by hand and then approves it, so it can take a few hours or longer. Tap Check my payment status on the sign-in page, or message support with your reference and transaction ID."],
+    ["How do I earn?", `First referral: ${M(r.first)} when the first person you refer pays. Second referral: ${M(r.second)} more when someone you refer pays on your other side. Pair bonus: ${M(r.cycle)} each time ${r.perSide} new people join your left side and ${r.perSide} join your right, even if you did not refer them (people within ${r.levels} levels below you count). Coins: every ${r.referralsPerCoin} people who join with your code earns 1 coin, and ${r.coinsPerCashout} coins convert to ${M(r.cashout)}.`],
+    ["Are earnings guaranteed?", "No. You only earn when people join the network. Nobody is promised any amount, and many members will earn less than they paid. Only join with money you can afford to lose."],
+    ["What are the left and right sides?", "Every member has a left side and a right side. You choose a side when you sign up under someone. If that spot is taken, you are placed in the next free spot further down that side, so people can end up under someone else."],
+    ["Why is someone I referred sitting under another member?", "That is called spillover. They still count for your coins and your first and second referral bonuses, and they still count toward your pair bonus."],
+    ["When can I withdraw my earnings?", r.midnight ? `New earnings stay pending until 12:00 am (midnight). Then they move into your available balance. You can withdraw any amount from ${M(r.payoutMin)} up to your available balance. The Next payout card on the Home page shows what is coming.` : `New earnings stay pending for a short wait. Then they move into your available balance. You can withdraw any amount from ${M(r.payoutMin)} up to your available balance.`],
+    ["How do withdrawals work?", `Open the Withdraw tab, enter an amount and tap Withdraw now. A ${M(r.fee)} transfer fee applies. The merchant sends the money to the mobile money number you registered, then marks it paid. It shows as Waiting for merchant until then. If a request is rejected, the money returns to your balance.`],
+    ["How long do withdrawals take?", "They are sent by hand, so they are not instant. If it has been more than a day, contact support."],
+    ["I forgot my password. What do I do?", "On the sign-in page tap Forgot password. Enter your phone number and we send a 6-digit code by text message and email. Enter the code with a new password. If no code arrives, ask support on WhatsApp and they can give you one."],
+    ["Can I withdraw to a different MoMo number?", "Yes. On the Withdraw tab you can change the MoMo number and network before you tap Withdraw now. If it is different from the number on your account you must enter your password, to keep your money safe. Changing the number on your account itself is not possible in the app yet, so contact support for that."],
+    ["I paid but my account is not active.", "Make sure you entered your MoMo transaction ID after paying. Then tap Check my payment status on the sign-in page. If it still shows waiting, message support with your reference and transaction ID."],
+    ["What do the symbols in the Tree mean?", "L and R show the side a person sits on. A filled circle means they have paid and an empty circle means they have not yet. A star means you referred them yourself."],
+    ["How do I contact support or join the channel?", "Use the WhatsApp buttons below, or the ones on your Home page. Support answers questions, and the channel shares news and updates."],
+  ];
+  const text = encodeURIComponent("Hello, I have a question about ReferPay." + (m ? " My name is " + m.name + " and my referral code is " + m.code + "." : ""));
+  return `<div class="card"><h2>Frequently asked questions</h2>${items.map((i) => `<details class="faq"><summary>${esc(i[0])}</summary><p>${esc(i[1])}</p></details>`).join("")}</div>`
+    + (sp.channelUrl ? `<a class="btn" style="margin-bottom:10px" href="${esc(sp.channelUrl)}" target="_blank" rel="noopener">Join our WhatsApp channel</a>` : "")
+    + (sp.whatsapp ? `<a class="btn alt" style="margin-bottom:14px" href="https://wa.me/${esc(sp.whatsapp)}?text=${text}" target="_blank" rel="noopener">Contact support on WhatsApp</a>` : "");
+}
+function faqPublic() {
+  $("app").innerHTML = `<h1>FAQ</h1>` + faqHtml(CFG, null) + `<button class="alt" id="back">Back</button>`;
+  $("back").onclick = () => authView();
+}
+
+// Forgot password: get a code by text message and email (or from support), then choose a new password.
+function forgotView() {
+  $("app").innerHTML = `<h1>Reset password</h1>
+  <div class="card"><h2>1. Get a code</h2><p>Enter the phone number you signed up with. We send a code by text message and email.</p>
+  <input id="fp" inputmode="tel" placeholder="Phone (0551234567)" autocomplete="tel"><p class="g" id="fok"></p><p class="err" id="ferr"></p><button id="fsend">Send me a code</button></div>
+  <div class="card"><h2>2. Choose a new password</h2><p>Enter the code (or the one support gave you) and your new password.</p>
+  <input id="fc" inputmode="numeric" placeholder="6-digit code" autocomplete="one-time-code"><input id="fn" type="password" placeholder="New password (8+ characters)" autocomplete="new-password">
+  <p class="err" id="rerr"></p><button id="freset">Reset password</button></div><button class="alt" id="back">Back</button>`;
+  $("back").onclick = () => authView();
+  $("fsend").onclick = async () => {
+    $("fsend").disabled = true; $("ferr").textContent = ""; $("fok").textContent = "";
+    try { await api("/password/forgot", { phone: $("fp").value.trim() }); $("fok").textContent = "If that number is registered, a code is on its way. It is valid for 15 minutes."; }
+    catch (e) { $("ferr").textContent = e.message; }
+    $("fsend").disabled = false;
+  };
+  $("freset").onclick = async () => {
+    $("freset").disabled = true; $("rerr").textContent = "";
+    try {
+      await api("/password/reset", { phone: $("fp").value.trim(), code: $("fc").value.trim(), password: $("fn").value });
+      setToken(null); NOTICE = "Your password was changed. Log in with your new password."; mode = "login"; authView();
+    } catch (e) { $("rerr").textContent = e.message; $("freset").disabled = false; }
+  };
+}
+
 function authView() {
   const su = mode === "signup";
   $("app").innerHTML = `<h1>ReferPay</h1><div class="card"><h2>${su ? "Create your account" : "Log in"}</h2>${NOTICE ? `<p class="g">${esc(NOTICE)}</p>` : ""}
@@ -114,10 +169,13 @@ function authView() {
   <select id="side"><option value="">Join which side? (Left or Right)</option><option value="L">Left</option><option value="R">Right</option></select>` : ""}
   <input id="password" type="password" placeholder="Password (8+ characters)" autocomplete="${su ? "new-password" : "current-password"}">
   ${su ? `<p>Joining costs ${money(CFG.price)} (mobile money or card). Up to ${money(CFG.rewardMax || 2000)} of it goes to rewards for members above you. The rest covers platform costs and running the business.</p>` : ""}<p class="err" id="err"></p><button id="go">${su ? (CFG.mode === "manual" ? "Continue to payment" : "Pay " + money(CFG.price) + " and sign up") : "Log in"}</button></div>
-  <p style="text-align:center"><a class="lnk" id="sw">${su ? "I already have an account" : "Create an account"}</a></p>`;
+  ${su ? "" : `<p style="text-align:center"><a class="lnk" id="fpw">Forgot password?</a></p>`}
+  <p style="text-align:center"><a class="lnk" id="sw">${su ? "I already have an account" : "Create an account"}</a></p><p style="text-align:center"><a class="lnk" id="faqlk">Read the FAQ</a></p>`;
   $("err").textContent = AUTHERR; AUTHERR = "";
   if (PENDING) { $("app").insertAdjacentHTML("beforeend", '<p style="text-align:center"><a class="lnk" id="chkpay">Check my payment status</a></p>'); $("chkpay").onclick = () => waitView(PENDING); }
   $("sw").onclick = () => { mode = su ? "login" : "signup"; authView(); };
+  $("faqlk").onclick = faqPublic;
+  if ($("fpw")) $("fpw").onclick = forgotView;
   $("go").onclick = async () => {
     const v = (id) => ($(id) ? $(id).value.trim() : undefined);
     $("go").disabled = true; $("err").textContent = "";
@@ -131,8 +189,34 @@ function authView() {
   };
 }
 
+// MANUAL mode: an account that has not paid yet pays by MoMo and enters the transaction ID.
+function manualActivate(m) {
+  const g = m.merchant;
+  $("app").innerHTML = `<h1>Hi, ${esc(m.name)}</h1>` + (m.awaiting
+    ? `<div class="card"><h2>Waiting for confirmation</h2><p>Thank you. Once your payment is confirmed your account is activated. Tap below to check.</p>
+       <p class="err" id="err"></p><p class="g" id="ok"></p><button id="chk">Check status</button></div>`
+    : `<div class="card"><h2>Activate your account</h2><p style="font-size:26px;font-weight:700;color:var(--text)">${money(m.price)} <span style="font-size:14px;font-weight:400" class="mu">one-time</span></p>
+       <p>Up to ${money(m.rewards.max)} of this goes to rewards for members above you. The rest covers platform costs and running the business.</p>
+       <p class="mu" style="font-size:12px">Earnings are not guaranteed.</p>
+       <p>Send exactly ${money(m.price)} by mobile money to:</p>
+       <p style="font-size:18px;color:var(--text);margin:0"><b>${esc(g.name)}</b></p><p style="margin:0">${esc(g.network)} MoMo number</p>
+       <div class="row" style="margin:6px 0 10px"><input id="mn" value="${esc(g.number)}" readonly style="font-size:18px"><button id="cpn">Copy</button></div>
+       <p>Add your phone number as the payment reference if your phone asks. Then enter the transaction ID from your MoMo confirmation message.</p>
+       <input id="tx" placeholder="MoMo transaction ID"><p class="err" id="err"></p><button id="paid">I have paid</button></div>`)
+    + `<button class="alt" id="out">Log out</button>`;
+  $("out").onclick = () => { setToken(null); ME = null; authView(); };
+  if ($("cpn")) $("cpn").onclick = () => { try { navigator.clipboard.writeText(g.number); $("cpn").textContent = "Copied"; } catch (e) { $("mn").select(); } };
+  if ($("paid")) $("paid").onclick = async () => { $("paid").disabled = true; $("err").textContent = ""; try { await api("/activation/paid", { txnId: $("tx").value }); await boot(); } catch (e) { $("err").textContent = e.message; $("paid").disabled = false; } };
+  if ($("chk")) $("chk").onclick = async () => {
+    $("chk").disabled = true; $("err").textContent = ""; $("ok").textContent = "";
+    try { const r = await api("/activation/check", {}); if (r.active) return boot(); $("ok").textContent = "Still waiting for the merchant to confirm. Please check again soon."; }
+    catch (e) { $("err").textContent = e.message; }
+    $("chk").disabled = false;
+  };
+}
 function activateView() {
   const m = ME;
+  if (m.merchant) return manualActivate(m);
   $("app").innerHTML = `<h1>Hi, ${esc(m.name)}</h1>
   <div class="card"><h2>Activate your account</h2>
   <p style="font-size:26px;font-weight:700;color:var(--text)">${money(m.price)} <span style="font-size:14px;font-weight:400" class="mu">one-time</span></p>
@@ -152,9 +236,9 @@ function appView() {
   const r = route(), m = ME, nL = m.downlines.filter((d) => d.leg === "L").length, nR = m.downlines.filter((d) => d.leg === "R").length;
   let pg = "";
   if (r === "home") {
-    // Next payout = rewards still in the waiting period, which become withdrawable within holdHours
-    const pend = m.history.filter((x) => ["reward", "bonus", "cycle", "coin_cash"].includes(x.kind) && Date.now() - Date.parse(x.created) < m.holdHours * 3600e3);
-    const nextAt = pend.length ? Math.min(...pend.map((x) => Date.parse(x.created))) + m.holdHours * 3600e3 : 0;
+    // Next payout = earnings still waiting. They are released into your available balance at 12:00 am (midnight).
+    const nr = m.nextRelease ? Date.parse(m.nextRelease) : 0;
+    const hrs = nr ? Math.max(1, Math.ceil((nr - Date.now()) / 3600e3)) : 0;
     const bz = m.bonus, rw = m.rewards;
     const bonusCard = `<div class="card"><h2>Your bonuses</h2>` + (bz.stage === 0
       ? `<p>Refer your first person and earn ${money(rw.first)} when they pay.</p>`
@@ -168,18 +252,18 @@ function appView() {
     const annCard = m.announcements && m.announcements.length ? `<div class="card"><h2>📢 Announcements</h2>${m.announcements.map((a, i) => `<div style="padding:8px 0;${i ? "border-top:1px solid var(--line)" : ""}"><div style="white-space:pre-wrap">${esc(a.message)}</div><small>${esc(String(a.created).slice(0, 10))}</small></div>`).join("")}</div>` : "";
     const sp = m.support || {};
     const waText = encodeURIComponent("Hello, I need help with ReferPay. My name is " + m.name + " and my referral code is " + m.code + ".");
-    const helpCard = sp.channelUrl || sp.whatsapp ? `<div class="card"><h2>Community and support</h2>${sp.channelUrl ? `<a class="btn" href="${esc(sp.channelUrl)}" target="_blank" rel="noopener">Join our WhatsApp channel</a>` : ""}${sp.whatsapp ? `<a class="btn alt" href="https://wa.me/${esc(sp.whatsapp)}?text=${waText}" target="_blank" rel="noopener" style="margin-top:${sp.channelUrl ? "10px" : "0"}">Contact support on WhatsApp</a>` : ""}</div>` : "";
-    const hrs = nextAt ? Math.max(1, Math.ceil((nextAt - Date.now()) / 3600e3)) : 0;
+    const channelCard = sp.channelUrl ? `<div class="card"><h2>Our WhatsApp channel</h2><p>Get news, updates and announcements from the team.</p><a class="btn" href="${esc(sp.channelUrl)}" target="_blank" rel="noopener">Join our WhatsApp channel</a></div>` : "";
+    const supportCard = sp.whatsapp ? `<div class="card"><h2>Need help?</h2><p>Chat with our support team on WhatsApp. Your name and referral code are filled in for you.</p><a class="btn alt" href="https://wa.me/${esc(sp.whatsapp)}?text=${waText}" target="_blank" rel="noopener">Contact support on WhatsApp</a></div>` : "";
     const link = location.origin + "/?ref=" + m.code;
     pg = `${annCard}<div class="grid"><div class="card"><div class="big g">${money(m.balance)}</div><small>Available to withdraw</small></div>
     <div class="card"><div class="big">${m.downlines.length}</div><small>Downlines (combined)</small></div>
     <div class="card"><div class="big">${m.downlines.filter((d) => d.active).length}</div><small>Active</small></div>
     <div class="card"><div class="big">${m.downlines.filter((d) => !d.active).length}</div><small>Pending</small></div>
     <div class="card"><div class="big">${nL}</div><small>Left side</small></div><div class="card"><div class="big">${nR}</div><small>Right side</small></div></div>
-    <div class="grid"><div class="card" style="text-align:center"><small>Next payout</small><div class="big g">${money(m.pendingAmount)}</div><small>${m.pendingAmount > 0 ? "available to withdraw within " + m.holdHours + " hours" + (hrs ? " (first part in about " + hrs + "h)" : "") : "nothing waiting right now"}</small></div><div class="card"><small>Total withdrawn</small><div class="big">${money(m.withdrawn.paid)}</div><small>${m.withdrawn.waiting > 0 ? money(m.withdrawn.waiting) + " waiting to be sent" : "paid out so far"}</small></div></div>
+    <div class="grid"><div class="card" style="text-align:center"><small>Next payout</small><div class="big g">${money(m.pendingAmount)}</div><small>${m.pendingAmount > 0 ? (m.midnight ? "available to withdraw at 12:00 am" : "available to withdraw soon") + (hrs ? " (in about " + hrs + "h)" : "") : "nothing waiting right now"}</small></div><div class="card"><small>Total withdrawn</small><div class="big">${money(m.withdrawn.paid)}</div><small>${m.withdrawn.waiting > 0 ? money(m.withdrawn.waiting) + " waiting to be sent" : "paid out so far"}</small></div></div>
     ${bonusCard}${coinCard}<div class="card"><h2>Your referral link</h2><div class="row"><input id="lk" value="${esc(link)}" readonly><button id="cp">Copy</button></div>
     <p style="margin-top:10px">Code: <b>${esc(m.code)}</b>. You earn ${money(m.rewards.first)} when your first referral pays and ${money(m.rewards.second)} when someone pays on your other side. After that you earn ${money(m.rewards.cycle)} each time ${m.rewards.perSide} new people join your left side and ${m.rewards.perSide} join your right, even if you did not refer them.</p></div>
-    ${helpCard}
+    ${channelCard}${supportCard}
     <p class="err" id="err"></p>`;
   } else if (r === "downlines") {
     const tot = m.downlines.reduce((a, d) => a + d.earned, 0);
@@ -204,16 +288,23 @@ function appView() {
     <p>L is left, R is right. ● paid, ○ not paid, ★ you referred them. Tap a name to open or close its branch.</p>
     <div class="you">You (${esc(m.name)})</div>
     <div class="kids">${["L", "R"].map((s) => (root[s] ? node(root[s])[0] : empty(s)[0])).join("")}</div></div>`;
+  } else if (r === "faq") {
+    pg = faqHtml(CFG, m);
   } else if (r === "earnings") {
     pg = `<div class="card"><h2>Earnings history</h2>${m.history.length ? `<div class="tw"><table><tr><th>Date</th><th>Type</th><th>From</th><th>Amount</th></tr>
-    ${m.history.map((h) => `<tr><td>${h.created.slice(0, 10)}</td><td>${["reward", "bonus", "cycle"].includes(h.kind) ? (h.kind === "bonus" ? "Referral bonus" : h.kind === "cycle" ? "Pair bonus" : "Reward L" + h.level) + (Date.now() - Date.parse(h.created) < m.holdHours * 3600e3 ? " (pending)" : "") : h.kind === "coin_cash" ? "Coins cash-out" : h.kind === "payout_hold" ? "Withdrawal" : "Refund"}</td><td>${esc(h.src || "")}</td><td class="${h.amount < 0 ? "mu" : "g"}">${h.amount < 0 ? "" : "+"}${money(h.amount)}</td></tr>`).join("")}</table></div>` : "<p>Nothing yet.</p>"}</div>`;
+    ${m.history.map((h) => `<tr><td>${h.created.slice(0, 10)}</td><td>${["reward", "bonus", "cycle"].includes(h.kind) ? (h.kind === "bonus" ? "Referral bonus" : h.kind === "cycle" ? "Pair bonus" : "Reward L" + h.level) + (h.created > m.holdCutoff ? " (pending)" : "") : h.kind === "coin_cash" ? "Coins cash-out" : h.kind === "payout_hold" ? "Withdrawal" : "Refund"}</td><td>${esc(h.src || "")}</td><td class="${h.amount < 0 ? "mu" : "g"}">${h.amount < 0 ? "" : "+"}${money(h.amount)}</td></tr>`).join("")}</table></div>` : "<p>Nothing yet.</p>"}</div>`;
   } else {
     const can = m.balance >= m.payoutMin, st = { pending: "Waiting for merchant", processing: "Sending", paid: "Paid", failed: "Failed, refunded" };
     pg = `<div class="card"><h2>Withdraw to mobile money</h2>
-    <p>Available ${money(m.balance)}.${m.pendingAmount > 0 ? " Another " + money(m.pendingAmount) + " becomes available within " + m.holdHours + " hours." : ""} New earnings can be withdrawn ${m.holdHours} hours after you earn them. Withdraw any amount from ${money(m.payoutMin)} up to your balance, any time. A ${money(m.fee)} transfer fee applies. Money goes to your registered mobile money number.${m.mode === "manual" ? " The merchant sends it by mobile money after approving your request." : ""}</p>
-    <input id="amt" type="number" inputmode="decimal" min="${m.payoutMin / 100}" step="0.01" placeholder="Amount (GH₵)"><p id="rcv" class="mu" style="font-size:14px;min-height:20px"></p><p class="err" id="err"></p>
+    <p>Available ${money(m.balance)}.${m.pendingAmount > 0 ? " Another " + money(m.pendingAmount) + (m.midnight ? " becomes available at 12:00 am." : " becomes available soon.") : ""} ${m.midnight ? "New earnings are released into your balance at 12:00 am (midnight) each day." : "New earnings are released into your balance after a short wait."} Withdraw any amount from ${money(m.payoutMin)} up to your balance, any time. A ${money(m.fee)} transfer fee applies. Choose below which mobile money number the money goes to.${m.mode === "manual" ? " The merchant sends it by mobile money after approving your request." : ""}</p>
+    <input id="amt" type="number" inputmode="decimal" min="${m.payoutMin / 100}" step="0.01" placeholder="Amount (GH₵)"><p id="rcv" class="mu" style="font-size:14px;min-height:20px"></p>
+    <p style="margin-bottom:4px"><b>Send the money to this MoMo number</b></p>
+    <input id="wno" inputmode="tel" value="${esc(m.phone)}" placeholder="MoMo number (0551234567)">
+    <select id="wnet">${[["MTN", "MTN MoMo"], ["TELECEL", "Telecel Cash"], ["AIRTELTIGO", "AirtelTigo Money"]].map((o) => `<option value="${o[0]}"${o[0] === m.network ? " selected" : ""}>${o[1]}</option>`).join("")}</select>
+    <div id="wpw" style="display:none"><p>This is a different number from the one on your account. Enter your password to confirm.</p><input id="wpass" type="password" placeholder="Your password" autocomplete="current-password"></div>
+    <p class="err" id="err"></p>
     <div class="row"><button class="alt" id="all" style="flex:1" ${can ? "" : "disabled"}>Withdraw all</button><button id="req" style="flex:1" ${can ? "" : "disabled"}>Withdraw now</button></div></div>
-    <div class="card"><h2>Your withdrawals</h2>${m.payouts.length ? `<div class="tw"><table><tr><th>Date</th><th>Amount</th><th>Status</th></tr>${m.payouts.map((p) => `<tr><td>${p.created.slice(0, 10)}</td><td>${money(p.amount)}</td><td>${st[p.status] || p.status}</td></tr>`).join("")}</table></div>` : "<p>No withdrawals yet.</p>"}</div>`;
+    <div class="card"><h2>Your withdrawals</h2>${m.payouts.length ? `<div class="tw"><table><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr>${m.payouts.map((p) => `<tr><td>${p.created.slice(0, 10)}</td><td>${money(p.amount)}</td><td>${p.momo_number ? "••••" + esc(String(p.momo_number).slice(-4)) : ""}</td><td>${st[p.status] || p.status}</td></tr>`).join("")}</table></div>` : "<p>No withdrawals yet.</p>"}</div>`;
   }
   $("app").innerHTML = `<h1>Hi, ${esc(m.name)}</h1><div class="tabs">${tabs.map((t) => `<a href="#${t[0]}" class="${t[0] === r ? "on" : ""}">${t[1]}</a>`).join("")}</div>${pg}<button class="alt" id="out">Log out</button>`;
   $("out").onclick = () => { setToken(null); ME = null; authView(); };
@@ -222,7 +313,14 @@ function appView() {
   if ($("conv")) $("conv").onclick = async () => { $("conv").disabled = true; try { await api("/coins/convert", {}); await boot(); } catch (e) { $("cerr").textContent = e.message; $("conv").disabled = false; } };
   if ($("amt")) $("amt").oninput = () => { const v = parseFloat($("amt").value); $("rcv").textContent = v > 0 ? "You receive " + money(Math.max(0, Math.round(v * 100) - m.fee)) : ""; };
   if ($("all")) $("all").onclick = () => { $("amt").value = (m.balance / 100).toFixed(2); $("amt").oninput(); };
-  if ($("req")) $("req").onclick = async () => { $("req").disabled = true; try { await api("/payout", { amount: $("amt").value }); await boot(); } catch (e) { $("err").textContent = e.message; $("req").disabled = false; } };
+  const diff = () => { const n = $("wno").value.replace(/[\s\-().]/g, ""); return !(n === m.phone || n === "+233" + m.phone.slice(1) || n === "233" + m.phone.slice(1)) || $("wnet").value !== m.network; };
+  const showPw = () => { if ($("wpw")) $("wpw").style.display = diff() ? "block" : "none"; };
+  if ($("wno")) { $("wno").oninput = showPw; $("wnet").onchange = showPw; }
+  if ($("req")) $("req").onclick = async () => {
+    $("req").disabled = true; $("err").textContent = "";
+    try { await api("/payout", { amount: $("amt").value, number: $("wno").value.trim(), network: $("wnet").value, password: $("wpass").value }); await boot(); }
+    catch (e) { $("err").textContent = e.message; $("req").disabled = false; }
+  };
 }
 
 async function boot() {

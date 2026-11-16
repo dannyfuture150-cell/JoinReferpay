@@ -61,11 +61,21 @@ async function load(force) {
     <p><b>${esc(s.name)}</b><br>MoMo ${esc(s.phone)} (${esc(s.network)})<br>Reference ${esc(s.reference)}<br>Transaction ID <b>${esc(s.txn_id)}</b></p>
     <p>Check your MoMo app: the money and this transaction ID must be there before you approve.</p>
     <div class="row"><button data-a="approve" data-id="${s.id}" data-t="${esc(s.name)} / ${money(s.amount)} / ID ${esc(s.txn_id)}">Approve</button><button class="alt" data-a="reject-s" data-id="${s.id}">Reject</button></div></div>`).join("") : "<p>Nothing waiting.</p>"}
+  ${d.roots && d.roots.length ? `<h2>Your first account (unpaid)</h2><p>This account is at the top of the network and has not been activated. As the owner you can switch it on without paying yourself.</p>` + d.roots.map((s) => `<div class="card"><p><b>${esc(s.name)}</b><br>MoMo ${esc(s.phone)} (${esc(s.network)})</p>
+    <button data-a="root" data-id="${s.id}" data-t="${esc(s.name)} ${esc(s.phone)}" style="width:100%">Activate without payment</button></div>`).join("") : ""}
+  <h2>Account activations to confirm (${d.activations.length})</h2>
+  ${d.activations.length ? d.activations.map((s) => `<div class="card"><div class="big">${money(s.amount)}</div>
+    <p><b>${esc(s.name)}</b> (an existing member)<br>MoMo ${esc(s.phone)} (${esc(s.network)})<br>Transaction ID <b>${esc(s.txn_id)}</b></p>
+    <p>Check your MoMo app: the money and this transaction ID must be there before you approve.</p>
+    <div class="row"><button data-a="approve-a" data-id="${s.id}" data-t="${esc(s.name)} / ${money(s.amount)} / ID ${esc(s.txn_id)}">Approve</button><button class="alt" data-a="reject-a" data-id="${s.id}">Reject</button></div></div>`).join("") : "<p>Nothing waiting.</p>"}
   <h2>Withdrawals to send (${d.payouts.length})</h2>
   ${d.payouts.length ? d.payouts.map((p) => `<div class="card"><div class="big">Send ${money(p.amount - p.fee)}</div>
     <p><b>${esc(p.name)}</b><br>MoMo ${esc(p.phone)} (${esc(p.network)})<br>Requested ${money(p.amount)}, minus ${money(p.fee)} fee</p>
     <p>Send it from your MoMo first, then tap Mark as paid.</p>
     <div class="row"><button data-a="paid" data-id="${p.id}" data-t="${money(p.amount - p.fee)} to ${esc(p.name)} ${esc(p.phone)}">Mark as paid</button><button class="alt" data-a="reject-p" data-id="${p.id}">Reject and refund</button></div></div>`).join("") : "<p>Nothing waiting.</p>"}
+  <h2>Reset a member's password</h2>
+  <div class="card"><p>Type the member's phone number to make a one-time code (valid 30 minutes). Send it to them on WhatsApp. They use it on Forgot password.</p>
+    <input id="rp" inputmode="tel" placeholder="Member's phone (0551234567)"><button id="rpb" style="width:100%">Make a reset code</button><p class="g" id="rpo" style="font-size:18px"></p><p class="err" id="rpe"></p></div>
   <h2>Announcements to members</h2>
   <div class="card"><textarea id="ann" rows="4" maxlength="500" placeholder="Write a message for all members"></textarea>
     <p>Shown at the top of every member's Home page. Up to 500 characters.</p>
@@ -81,6 +91,11 @@ async function load(force) {
     try { await call("/announcements", "POST", { message: msg }); $("ann").value = ""; await load(true); }
     catch (e) { $("e2").textContent = e.message; $("post").disabled = false; }
   };
+  $("rpb").onclick = async () => {
+    $("rpo").textContent = ""; $("rpe").textContent = "";
+    try { const r = await call("/reset-code", "POST", { phone: $("rp").value.trim() }); $("rpo").textContent = r.name + ": " + r.code; }
+    catch (e) { $("rpe").textContent = e.message; }
+  };
   $("rf").onclick = () => load(true);
   $("lo").onclick = (ev) => { ev.preventDefault(); KEY = ""; try { localStorage.removeItem("rp_admin"); } catch (e) {} loginView(); };
   document.querySelectorAll("button[data-a]").forEach((b) => { b.onclick = () => act(b); });
@@ -89,11 +104,11 @@ async function load(force) {
 
 async function act(b) {
   const a = b.dataset.a, id = b.dataset.id;
-  const ask = { approve: "Did this arrive in your MoMo app?\n" + (b.dataset.t || ""), paid: "Have you already sent " + (b.dataset.t || "") + "?",
+  const ask = { root: "Activate " + (b.dataset.t || "") + " without payment? Only do this for your own first account.", approve: "Did this arrive in your MoMo app?\n" + (b.dataset.t || ""), "approve-a": "Did this arrive in your MoMo app?\n" + (b.dataset.t || ""), "reject-a": "Reject this payment? The member is NOT activated. Refund them yourself if they did pay.", paid: "Have you already sent " + (b.dataset.t || "") + "?",
     "reject-s": "Reject this payment? The person is NOT activated. Refund them yourself if they did pay.", "reject-p": "Reject this withdrawal? The money goes back to the member's balance.", "del-a": "Delete this announcement? Members will no longer see it." }[a];
   if (!confirm(ask)) return;
   b.disabled = true;
-  const path = { approve: "/signups/" + id + "/approve", "reject-s": "/signups/" + id + "/reject", paid: "/payouts/" + id + "/paid", "reject-p": "/payouts/" + id + "/reject", "del-a": "/announcements/" + id + "/delete" }[a];
+  const path = { root: "/members/" + id + "/activate", approve: "/signups/" + id + "/approve", "approve-a": "/activations/" + id + "/approve", "reject-a": "/activations/" + id + "/reject", "reject-s": "/signups/" + id + "/reject", paid: "/payouts/" + id + "/paid", "reject-p": "/payouts/" + id + "/reject", "del-a": "/announcements/" + id + "/delete" }[a];
   try { await call(path, "POST"); await load(true); } catch (e) { b.disabled = false; $("e").textContent = e.message; }
 }
 

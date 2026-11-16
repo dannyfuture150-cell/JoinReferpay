@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS members(
   active INTEGER NOT NULL DEFAULT 0,
   left_active INTEGER NOT NULL DEFAULT 0,
   right_active INTEGER NOT NULL DEFAULT 0,
+  token_ver INTEGER NOT NULL DEFAULT 0,
   first_leg TEXT, bonus_stage INTEGER NOT NULL DEFAULT 0,
   base_left INTEGER NOT NULL DEFAULT 0, base_right INTEGER NOT NULL DEFAULT 0, cycles_paid INTEGER NOT NULL DEFAULT 0,
   recipient_code TEXT, created TEXT NOT NULL);
@@ -45,7 +46,7 @@ CREATE TABLE IF NOT EXISTS signups(
   status TEXT NOT NULL, member_id INTEGER, txn_id TEXT, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS purchases(
   id SERIAL PRIMARY KEY, member_id INTEGER NOT NULL REFERENCES members(id),
-  reference TEXT NOT NULL UNIQUE, amount INTEGER NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL);
+  reference TEXT NOT NULL UNIQUE, amount INTEGER NOT NULL, status TEXT NOT NULL, txn_id TEXT, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ledger(
   id SERIAL PRIMARY KEY, member_id INTEGER NOT NULL REFERENCES members(id),
   kind TEXT NOT NULL, amount INTEGER NOT NULL, ref TEXT NOT NULL UNIQUE,
@@ -56,7 +57,10 @@ CREATE TABLE IF NOT EXISTS announcements(
 CREATE TABLE IF NOT EXISTS payouts(
   id SERIAL PRIMARY KEY, member_id INTEGER NOT NULL REFERENCES members(id),
   amount INTEGER NOT NULL, fee INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL,
-  reference TEXT UNIQUE, created TEXT NOT NULL);
+  reference TEXT UNIQUE, momo_number TEXT, momo_network TEXT, created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS password_resets(
+  id SERIAL PRIMARY KEY, member_id INTEGER NOT NULL REFERENCES members(id),
+  code_hash TEXT NOT NULL, expires TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL);
 `;
 
 // Creates the tables the first time the app runs (and does nothing afterwards).
@@ -68,6 +72,11 @@ function init() {
       await c(SCHEMA);
       // for databases made by an earlier version
       await c('ALTER TABLE signups ADD COLUMN IF NOT EXISTS txn_id TEXT');
+      await c('ALTER TABLE purchases ADD COLUMN IF NOT EXISTS txn_id TEXT');
+      await c('ALTER TABLE payouts ADD COLUMN IF NOT EXISTS momo_number TEXT');
+      await c('ALTER TABLE payouts ADD COLUMN IF NOT EXISTS momo_network TEXT');
+      await c('ALTER TABLE members ADD COLUMN IF NOT EXISTS token_ver INTEGER NOT NULL DEFAULT 0');
+      await c('CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_txn ON purchases(txn_id) WHERE txn_id IS NOT NULL');
       await c('CREATE UNIQUE INDEX IF NOT EXISTS idx_signups_txn ON signups(txn_id) WHERE txn_id IS NOT NULL'); // a MoMo transaction ID can only be used once
       for (const col of ['first_leg TEXT', 'bonus_stage INTEGER NOT NULL DEFAULT 0', 'base_left INTEGER NOT NULL DEFAULT 0', 'base_right INTEGER NOT NULL DEFAULT 0', 'cycles_paid INTEGER NOT NULL DEFAULT 0']) {
         await c('ALTER TABLE members ADD COLUMN IF NOT EXISTS ' + col);

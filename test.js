@@ -2,7 +2,7 @@ const assert = require('assert');
 const { FIRST_REFERRAL, SECOND_REFERRAL, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS } = require('./commissions');
 
 // 1. Plan constants (always run)
-assert.deepStrictEqual([FIRST_REFERRAL, SECOND_REFERRAL, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS], [500, 500, 300, 2, 20]);
+assert.deepStrictEqual([FIRST_REFERRAL, SECOND_REFERRAL, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS], [500, 500, 500, 2, 20]);
 console.log('reward plan tests passed');
 
 // 2. Database tests. They need a SEPARATE, EMPTY Postgres database and WIPE it, so never point this at your live one.
@@ -12,7 +12,7 @@ if (testUrl === process.env.DATABASE_URL) { console.error('TEST_DATABASE_URL mus
 process.env.DATABASE_URL = testUrl;
 
 const { q, init, pool } = require('./db');
-const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMember, completeSignup, processPayment, withdraw, coinStatus, convertCoins, withdrawalTotals, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup, normPhone, envNum } = require('./core');
+const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMember, completeSignup, processPayment, withdraw, coinStatus, convertCoins, withdrawalTotals, holdCutoff, nextRelease, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup, normPhone, envNum } = require('./core');
 
 (async () => {
   process.env.REWARD_HOLD_HOURS = '0'; // the main scenarios ignore the waiting period; it is tested separately at the end
@@ -59,10 +59,10 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   await buy(P6);
   assert.strictEqual(await balanceOf(P), 1000);
   await buy(P7);                                                      // r7: 2 new on each side, though P did not refer them directly under him
-  assert.strictEqual(await balanceOf(P), 1300);                      // pair bonus GH₵3
+  assert.strictEqual(await balanceOf(P), 1500);                      // pair bonus GH₵5
   assert.strictEqual((await q('SELECT cycles_paid AS n FROM members WHERE id=$1', [P])).rows[0].n, 1);
   assert.strictEqual((await fulfill('r7', 5000)).already, true);
-  assert.strictEqual(await balanceOf(P), 1300);                      // no double payment
+  assert.strictEqual(await balanceOf(P), 1500);                      // no double payment
   assert.strictEqual(await balanceOf(P1), 0);                        // P1 was not the sponsor and has no bonuses of its own
   // The first paying referral can sit deep in the tree and still pays the sponsor
   const Q = await mk('Q', null), Q1 = await mk('Q1', Q, 'L'), Q2 = await mk('Q2', Q, 'L'), Q3 = await mk('Q3', Q, 'R');
@@ -162,8 +162,8 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   assert.deepStrictEqual([cs.referrals, cs.earned, cs.available, cs.nextIn], [9, 3, 3, 3]);
   const coinBefore = await balanceOf(A);
   const cv = await convertCoins(A);
-  assert.deepStrictEqual([cv.ok, cv.amount], [true, 500]);                            // 3 coins -> GH₵5
-  assert.strictEqual(await balanceOf(A), coinBefore + 500);
+  assert.deepStrictEqual([cv.ok, cv.amount], [true, 1000]);                           // 3 coins -> GH₵10
+  assert.strictEqual(await balanceOf(A), coinBefore + 1000);
   cs = await coinStatus(A);
   assert.deepStrictEqual([cs.available, cs.converted], [0, 3]);
   assert.strictEqual((await convertCoins(A)).code, 'coins');                          // nothing left, no double cash-out
@@ -197,6 +197,8 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   assert.strictEqual((await q('SELECT status FROM payouts WHERE id=$1', [w1.id])).rows[0].status, 'paid');
   await withdraw(A, 500, opts(okPs));
   assert.strictEqual(recipients, 1);                                                // recipient is created once and reused
+  await withdraw(A, 500, { ...opts(okPs), number: '0201112222', network: 'TELECEL' });
+  assert.strictEqual(recipients, 2);                                                // a different number gets its own recipient
   const afterOk = await balanceOf(A);
   const failPs = { ...okPs, transfer: async () => { throw new Error('insufficient balance'); } };
   assert.strictEqual((await withdraw(A, 500, opts(failPs))).ok, false);             // Paystack refuses: money comes back
@@ -230,6 +232,25 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   assert.strictEqual(await rejectSignup((await q("SELECT id FROM signups WHERE reference='m2'")).rows[0].id), true);
   assert.strictEqual((await completeSignup('m2', 5000)).reason, 'rejected');          // a rejected payment can't be approved later
   assert.strictEqual(await hasPhone('0244000022'), false);
+  // An existing member who has not paid yet pays by MoMo and the merchant approves
+  const LG = await mk('LG', null, null, 0);
+  assert.strictEqual((await submitActivationPayment(LG, 'TX1234567', 5000)).code, 'dup');          // an ID already used for a sign-up
+  const ap = await submitActivationPayment(LG, 'ACT1234567', 5000);
+  assert.strictEqual(ap.ok, true);
+  assert.strictEqual((await q('SELECT active FROM members WHERE id=$1', [LG])).rows[0].active, 0); // not active until approved
+  assert.strictEqual((await fulfill(ap.purchase.reference, 5000)).ok, true);                        // merchant approves
+  assert.strictEqual((await q('SELECT active FROM members WHERE id=$1', [LG])).rows[0].active, 1);
+  assert.strictEqual((await submitActivationPayment(LG, 'ACT7654321', 5000)).code, 'active');
+  const LG2 = await mk('LG2', null, null, 0);
+  const ap2 = await submitActivationPayment(LG2, 'ACT2222222', 5000);
+  assert.strictEqual(await rejectActivation(ap2.purchase.id), true);
+  assert.strictEqual((await fulfill(ap2.purchase.reference, 5000)).reason, 'rejected');             // a rejected payment can't be approved later
+  // The owner's own first account can be switched on without paying; nobody under someone else can
+  const OWN = await mk('OWN', null, null, 0), UNDER = await mk('UNDER', A, 'L', 0);
+  assert.strictEqual(await activateRoot(UNDER), false);
+  assert.strictEqual(await activateRoot(OWN), true);
+  assert.strictEqual(await activateRoot(OWN), false);
+  assert.strictEqual((await q('SELECT active FROM members WHERE id=$1', [OWN])).rows[0].active, 1);
   // A sign-up with no referral code cannot start a second tree once the network exists
   await su('nr', 'NoRef', '0244000031', null, null);
   assert.strictEqual((await completeSignup('nr', 5000)).reason, 'noref');
@@ -257,6 +278,10 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   await requestWithdrawal(MW, 500, { fee: 100, min: 500 });
   const wt2 = await withdrawalTotals(MW);
   assert.deepStrictEqual([wt2.paid, wt2.waiting], [1000, 500]);                         // a new request shows as waiting
+  const mwPhone = (await q('SELECT phone FROM members WHERE id=$1', [MW])).rows[0].phone;
+  assert.strictEqual((await q('SELECT momo_number FROM payouts WHERE id=$1', [rq.id])).rows[0].momo_number, mwPhone);   // no number given: the account's number
+  const rqN = await requestWithdrawal(MW, 500, { fee: 100, min: 500, number: '0201112222', network: 'TELECEL' });
+  assert.deepStrictEqual(Object.values((await q('SELECT momo_number, momo_network FROM payouts WHERE id=$1', [rqN.id])).rows[0]), ['0201112222', 'TELECEL']); // the number the member chose
 
   // Next-day rule: new rewards cannot be withdrawn until the waiting period has passed
   process.env.REWARD_HOLD_HOURS = '24';
@@ -271,6 +296,44 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   assert.deepStrictEqual([b.total, b.pending, b.available], [500, 0, 500]);
   assert.strictEqual((await withdraw(G, 500, opts(okPs))).ok, true);
   assert.strictEqual(await balanceOf(G), 0);
+  process.env.REWARD_HOLD_HOURS = '0';
+
+  // Password reset codes
+  const { createResetCode, completeReset } = require('./core');
+  const PR = await mk('PR', null);
+  const rc = await createResetCode(PR);
+  assert.ok(/^\d{6}$/.test(rc.code));
+  assert.strictEqual((await completeReset(PR, '000000', 'newhash')).ok, false);                       // wrong code
+  assert.strictEqual((await completeReset(PR, rc.code, 'newhash')).ok, true);
+  const prRow = (await q('SELECT pass_hash, token_ver FROM members WHERE id=$1', [PR])).rows[0];
+  assert.deepStrictEqual([prRow.pass_hash, prRow.token_ver], ['newhash', 1]);                         // password changed, old logins signed out
+  assert.strictEqual((await completeReset(PR, rc.code, 'again')).ok, false);                          // a code works once
+  const rc2 = await createResetCode(PR);
+  for (let i = 0; i < 5; i++) await completeReset(PR, '111111', 'x');
+  assert.strictEqual((await completeReset(PR, rc2.code, 'x')).ok, false);                            // 5 wrong tries lock the code
+  await createResetCode(PR);
+  assert.strictEqual((await createResetCode(PR)).error, 'rate');                                      // only 3 codes an hour
+  const rc3 = await createResetCode(PR, 30, true);                                                    // the merchant can always make one
+  assert.ok(rc3.code);
+  await q("UPDATE password_resets SET expires='2020-01-01T00:00:00.000Z' WHERE member_id=$1 AND used=0", [PR]);
+  assert.strictEqual((await completeReset(PR, rc3.code, 'x')).ok, false);                            // expired
+  // 12:00 am release: earnings made today are pending, and join the balance after midnight
+  delete process.env.REWARD_HOLD_HOURS;
+  assert.strictEqual(holdCutoff(Date.parse('2026-11-17T15:30:00Z')), '2026-11-17T00:00:00.000Z');   // start of today (GMT)
+  process.env.RELEASE_UTC_OFFSET_HOURS = '1';
+  assert.strictEqual(holdCutoff(Date.parse('2026-11-17T15:30:00Z')), '2026-11-16T23:00:00.000Z');   // midnight on a clock one hour ahead
+  delete process.env.RELEASE_UTC_OFFSET_HOURS;
+  const MD = await mk('MD', null), MD1 = await mk('MD1', MD, 'L');
+  await buy(MD1);                                                   // MD earns GH₵5 today
+  b = await balances(MD);
+  assert.deepStrictEqual([b.total, b.pending, b.available], [500, 500, 0]);
+  assert.strictEqual((await withdraw(MD, 500, opts(okPs))).code, 'pending');                        // too early, wait for 12:00 am
+  const nr = await nextRelease(MD);
+  assert.strictEqual(nr, new Date(Date.parse(holdCutoff()) + 24 * 3600e3).toISOString());          // the next midnight
+  await q("UPDATE ledger SET created=$2 WHERE member_id=$1 AND kind IN ('reward','bonus','cycle')", [MD, new Date(Date.now() - 48 * 3600e3).toISOString()]); // pretend it was earned two days ago
+  b = await balances(MD);
+  assert.deepStrictEqual([b.total, b.pending, b.available], [500, 0, 500]);
+  assert.strictEqual((await withdraw(MD, 500, opts(okPs))).ok, true);
   process.env.REWARD_HOLD_HOURS = '0';
 
   console.log('All database tests passed');
