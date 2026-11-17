@@ -13,6 +13,8 @@ consumer-protection law and Paystack's rules.
 Rewards (members must be active, which means they have paid):
 - **First referral:** GH₵5 when the first person you referred with your code pays.
 - **Second referral:** another GH₵5 when someone you referred pays on your **other** side (GH₵10 in total).
+- **Every other personal referral:** GH₵3 each time someone you referred with your code pays, even if they ended up under someone else.
+  (Your first two keep the GH₵5 amounts above.)
 - **Pair bonus:** after that, GH₵5 every time **2 new people join your left side and 2 new people join your right side**,
   even if you did not refer them. People anywhere below you count (spillover and deeper members), but only those within the
   nearest 20 levels (`REWARD_MAX_LEVELS`), which keeps the cost per sign-up bounded.
@@ -132,14 +134,14 @@ numbers in `commissions.js` (`REFERRALS_PER_COIN`, `COINS_PER_CASHOUT`, `COIN_CA
 so this costs little next to the rewards.
 
 ## 5. Change the rewards
-Edit `commissions.js`: `FIRST_REFERRAL`, `SECOND_REFERRAL`, `CYCLE_BONUS` (pesewas, 500 = GH₵5),
+Edit `commissions.js`: `FIRST_REFERRAL`, `SECOND_REFERRAL`, `PERSONAL_BONUS`, `CYCLE_BONUS` (pesewas, 500 = GH₵5),
 `CYCLE_PEOPLE_PER_SIDE` (2), and `MAX_LEVELS` (also set by `REWARD_MAX_LEVELS`, default 20). Product price: `PRODUCT_PRICE_GHS`.
 
 **Check your margins.** Every sign-up can complete a pair bonus for each member above it (within 20 levels), so on average
 each sign-up costs up to about GH₵5 / 4 = GH₵1.25 per level above it, up to about GH₵25 over 20 levels, plus up to GH₵5
-for the sponsor: **about GH₵30 of each GH₵50**, and the cost per sign-up rises as the network gets deeper. Coins add roughly GH₵1
+for the sponsor (at least GH₵3 on every sign-up, so costs sit near the top of the range): **about GH₵30 of each GH₵50**, and the cost per sign-up rises as the network gets deeper. Coins add roughly GH₵1
 per referral on top. That leaves about GH₵19 of each GH₵50 for platform costs and you. Lowering `REWARD_MAX_LEVELS` (for example to 10) lowers
-the cap to about GH₵18.75.
+the cap to about GH₵17.50.
 
 ## 6. Run the tests
 `npm install`, then create a SEPARATE empty Postgres database (a Neon branch works) and run:

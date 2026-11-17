@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { q, tx } = require('./db');
-const { MAX_LEVELS, FIRST_REFERRAL, SECOND_REFERRAL, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
+const { MAX_LEVELS, FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
 const PATH_LIMIT = 1000; // how far up the tree we ever look
 
 const now = () => new Date().toISOString();
@@ -106,6 +106,7 @@ async function fulfill(reference, amountPaid) {
         if (a.id === sponsorId) {
           if (stage === 0) { earn.push([a.id, 'bonus', FIRST_REFERRAL, `bonus1:${p.member_id}`, a.level]); stage = 1; firstLeg = a.side; }
           else if (stage === 1 && a.side !== firstLeg) { earn.push([a.id, 'bonus', SECOND_REFERRAL, `bonus2:${p.member_id}`, a.level]); stage = 2; baseL = L; baseR = R; }
+          else earn.push([a.id, 'bonus', PERSONAL_BONUS, `bonus3:${p.member_id}`, a.level]); // every other personal referral, even a spillover one
         }
         if (m.bonus_stage === 2) { // pair bonuses only start once both referral bonuses were already earned
           const due = Math.min(Math.floor((L - baseL) / CYCLE_PEOPLE_PER_SIDE), Math.floor((R - baseR) / CYCLE_PEOPLE_PER_SIDE));

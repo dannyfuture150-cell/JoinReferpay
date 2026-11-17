@@ -35,6 +35,10 @@ a.lnk{color:var(--accent);font-weight:600;cursor:pointer}
 a.btn{display:block;text-align:center;text-decoration:none;padding:13px;border-radius:10px;background:var(--accent);color:var(--accent-t);font-weight:600}
 a.btn.alt{background:transparent;color:var(--text);border:1px solid var(--line)}
 details.faq{border-top:1px solid var(--line)}details.faq summary{cursor:pointer;padding:12px 0;font-weight:600}details.faq p{margin:0 0 12px}
+.top{display:flex;align-items:center;gap:12px;margin:6px 0 10px}.top h1{margin:0}
+.mb{width:46px;height:46px;padding:0;font-size:22px;line-height:1;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;flex:none}
+.menu{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px;margin-bottom:14px}
+.menu a{display:block;padding:12px;text-decoration:none;color:var(--text);font-weight:600;border-radius:8px}.menu a.on{background:var(--accent);color:var(--accent-t)}
 </style>
 </head>
 <body>
@@ -112,10 +116,10 @@ function faqHtml(c, m) {
     ["How do I join?", `1) Get a referral code from the person who invited you. 2) Tap Create an account, fill in the form, enter the code and choose Left or Right. 3) Send ${M(c.price)} by mobile money to the merchant shown on the pay screen and enter your MoMo transaction ID. 4) Wait for the merchant to confirm. Then log in.`],
     ["How much does it cost and where does the money go?", `Joining is a one-time ${M(c.price)}. Up to about ${M(c.rewardMax)} of it is paid out as rewards to members above you. The rest covers platform costs and running the business.`],
     ["How long until my account is activated?", "The merchant checks your payment by hand and then approves it, so it can take a few hours or longer. Tap Check my payment status on the sign-in page, or message support with your reference and transaction ID."],
-    ["How do I earn?", `First referral: ${M(r.first)} when the first person you refer pays. Second referral: ${M(r.second)} more when someone you refer pays on your other side. Pair bonus: ${M(r.cycle)} each time ${r.perSide} new people join your left side and ${r.perSide} join your right, even if you did not refer them (people within ${r.levels} levels below you count). Coins: every ${r.referralsPerCoin} people who join with your code earns 1 coin, and ${r.coinsPerCashout} coins convert to ${M(r.cashout)}.`],
+    ["How do I earn?", `First referral: ${M(r.first)} when the first person you refer pays. Second referral: ${M(r.second)} more when someone you refer pays on your other side. Every other person you refer yourself: ${M(r.personal)}, even if they end up under someone else. Pair bonus: ${M(r.cycle)} each time ${r.perSide} new people join your left side and ${r.perSide} join your right, even if you did not refer them (people within ${r.levels} levels below you count). Coins: every ${r.referralsPerCoin} people who join with your code earns 1 coin, and ${r.coinsPerCashout} coins convert to ${M(r.cashout)}.`],
     ["Are earnings guaranteed?", "No. You only earn when people join the network. Nobody is promised any amount, and many members will earn less than they paid. Only join with money you can afford to lose."],
     ["What are the left and right sides?", "Every member has a left side and a right side. You choose a side when you sign up under someone. If that spot is taken, you are placed in the next free spot further down that side, so people can end up under someone else."],
-    ["Why is someone I referred sitting under another member?", "That is called spillover. They still count for your coins and your first and second referral bonuses, and they still count toward your pair bonus."],
+    ["Why is someone I referred sitting under another member?", "That is called spillover. They still count for your coins and your referral bonuses, and they still count toward your pair bonus."],
     ["When can I withdraw my earnings?", r.midnight ? `New earnings stay pending until 12:00 am (midnight). Then they move into your available balance. You can withdraw any amount from ${M(r.payoutMin)} up to your available balance. The Next payout card on the Home page shows what is coming.` : `New earnings stay pending for a short wait. Then they move into your available balance. You can withdraw any amount from ${M(r.payoutMin)} up to your available balance.`],
     ["How do withdrawals work?", `Open the Withdraw tab, enter an amount and tap Withdraw now. A ${M(r.fee)} transfer fee applies. The merchant sends the money to the mobile money number you registered, then marks it paid. It shows as Waiting for merchant until then. If a request is rejected, the money returns to your balance.`],
     ["How long do withdrawals take?", "They are sent by hand, so they are not instant. If it has been more than a day, contact support."],
@@ -243,7 +247,7 @@ function appView() {
     const bonusCard = `<div class="card"><h2>Your bonuses</h2>` + (bz.stage === 0
       ? `<p>Refer your first person and earn ${money(rw.first)} when they pay.</p>`
       : bz.stage === 1 ? `<p>First referral bonus earned. Get someone to pay on your other side to earn another ${money(rw.second)}.</p>`
-      : `<p>New people since your last pair bonus: ${Math.min(bz.leftNew, rw.perSide)} of ${rw.perSide} on your left, ${Math.min(bz.rightNew, rw.perSide)} of ${rw.perSide} on your right. You earn ${money(rw.cycle)} each time you reach ${rw.perSide} on both sides. Pair bonuses so far: ${bz.cycles}.</p>`) + `</div>`;
+      : `<p>New people since your last pair bonus: ${Math.min(bz.leftNew, rw.perSide)} of ${rw.perSide} on your left, ${Math.min(bz.rightNew, rw.perSide)} of ${rw.perSide} on your right. You earn ${money(rw.cycle)} each time you reach ${rw.perSide} on both sides. Pair bonuses so far: ${bz.cycles}.</p>`) + `<p>Every other person you refer yourself earns you ${money(rw.personal)}, even if they end up under someone else.</p></div>`;
     const cn = m.coins, cr = m.coinRules, cg = Math.floor(cn.available / cr.coinsPerCashout);
     const coinCard = `<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div><h2 style="margin:0 0 4px">Coins</h2><small>${cn.nextIn} more ${cn.nextIn === 1 ? "person" : "people"} for your next coin</small></div><div class="big">🪙 ${cn.available}</div></div>
     <p style="margin:10px 0">Every ${cr.referralsPerCoin} people who join with your code earns 1 coin. ${cr.coinsPerCashout} coins = ${money(cr.cashout)}.</p>
@@ -262,7 +266,7 @@ function appView() {
     <div class="card"><div class="big">${nL}</div><small>Left side</small></div><div class="card"><div class="big">${nR}</div><small>Right side</small></div></div>
     <div class="grid"><div class="card" style="text-align:center"><small>Next payout</small><div class="big g">${money(m.pendingAmount)}</div><small>${m.pendingAmount > 0 ? (m.midnight ? "available to withdraw at 12:00 am" : "available to withdraw soon") + (hrs ? " (in about " + hrs + "h)" : "") : "nothing waiting right now"}</small></div><div class="card"><small>Total withdrawn</small><div class="big">${money(m.withdrawn.paid)}</div><small>${m.withdrawn.waiting > 0 ? money(m.withdrawn.waiting) + " waiting to be sent" : "paid out so far"}</small></div></div>
     ${bonusCard}${coinCard}<div class="card"><h2>Your referral link</h2><div class="row"><input id="lk" value="${esc(link)}" readonly><button id="cp">Copy</button></div>
-    <p style="margin-top:10px">Code: <b>${esc(m.code)}</b>. You earn ${money(m.rewards.first)} when your first referral pays and ${money(m.rewards.second)} when someone pays on your other side. After that you earn ${money(m.rewards.cycle)} each time ${m.rewards.perSide} new people join your left side and ${m.rewards.perSide} join your right, even if you did not refer them.</p></div>
+    <p style="margin-top:10px">Code: <b>${esc(m.code)}</b>. You earn ${money(m.rewards.first)} when your first referral pays and ${money(m.rewards.second)} when someone pays on your other side. Every other person you refer yourself earns you ${money(m.rewards.personal)}, even if they end up under someone else. You also earn ${money(m.rewards.cycle)} each time ${m.rewards.perSide} new people join your left side and ${m.rewards.perSide} join your right, even if you did not refer them.</p></div>
     ${channelCard}${supportCard}
     <p class="err" id="err"></p>`;
   } else if (r === "downlines") {
@@ -306,7 +310,11 @@ function appView() {
     <div class="row"><button class="alt" id="all" style="flex:1" ${can ? "" : "disabled"}>Withdraw all</button><button id="req" style="flex:1" ${can ? "" : "disabled"}>Withdraw now</button></div></div>
     <div class="card"><h2>Your withdrawals</h2>${m.payouts.length ? `<div class="tw"><table><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr>${m.payouts.map((p) => `<tr><td>${p.created.slice(0, 10)}</td><td>${money(p.amount)}</td><td>${p.momo_number ? "••••" + esc(String(p.momo_number).slice(-4)) : ""}</td><td>${st[p.status] || p.status}</td></tr>`).join("")}</table></div>` : "<p>No withdrawals yet.</p>"}</div>`;
   }
-  $("app").innerHTML = `<h1>Hi, ${esc(m.name)}</h1><div class="tabs">${tabs.map((t) => `<a href="#${t[0]}" class="${t[0] === r ? "on" : ""}">${t[1]}</a>`).join("")}</div>${pg}<button class="alt" id="out">Log out</button>`;
+  const inMenu = ["tree", "faq"], link = (t) => `<a href="#${t[0]}" class="${t[0] === r ? "on" : ""}">${t[1]}</a>`;
+  $("app").innerHTML = `<div class="top"><button class="mb" id="mb" aria-label="Menu">☰</button><h1>Hi, ${esc(m.name)}</h1></div>
+  <div class="menu" id="menu" style="display:none">${tabs.filter((t) => inMenu.includes(t[0])).map(link).join("")}<button class="alt" id="out" style="margin-top:6px">Log out</button></div>
+  <div class="tabs">${tabs.filter((t) => !inMenu.includes(t[0])).map(link).join("")}</div>${pg}`;
+  $("mb").onclick = () => { const mn = $("menu"); mn.style.display = mn.style.display === "none" ? "block" : "none"; };
   $("out").onclick = () => { setToken(null); ME = null; authView(); };
   if ($("cp")) $("cp").onclick = () => { try { navigator.clipboard.writeText($("lk").value); $("cp").textContent = "Copied"; } catch (e) { $("lk").select(); } };
   if ($("buy")) $("buy").onclick = async () => { $("buy").disabled = true; try { location.href = (await api("/checkout", {})).url; } catch (e) { $("err").textContent = e.message; $("buy").disabled = false; } };

@@ -1,8 +1,8 @@
 const assert = require('assert');
-const { FIRST_REFERRAL, SECOND_REFERRAL, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS } = require('./commissions');
+const { FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS } = require('./commissions');
 
 // 1. Plan constants (always run)
-assert.deepStrictEqual([FIRST_REFERRAL, SECOND_REFERRAL, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS], [500, 500, 500, 2, 20]);
+assert.deepStrictEqual([FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS], [500, 500, 300, 500, 2, 20]);
 console.log('reward plan tests passed');
 
 // 2. Database tests. They need a SEPARATE, EMPTY Postgres database and WIPE it, so never point this at your live one.
@@ -41,40 +41,40 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   assert.deepStrictEqual([(await at(E)).p, (await at(E)).s], [B, 'R']);
   assert.deepStrictEqual([(await at(F)).p, (await at(F)).s], [D, 'L']);
 
-  // New plan: GH₵5 first referral, GH₵5 for one on the other side, then GH₵3 per 2 new left + 2 new right
+  // GH₵5 first referral, GH₵5 for one on the other side, GH₵3 for every other personal referral, then GH₵5 per 2 new left + 2 new right
   const P = await mk('P', null);
   const P1 = await mk('P1', P, 'L'), P2 = await mk('P2', P, 'R');
   await buy(P1);                                                      // r1
   assert.strictEqual(await balanceOf(P), 500);                       // first referral pays GH₵5
   const P3 = await mk('P3', P, 'L');                                  // joins P's left, spills under P1
   await buy(P3);                                                      // r2
-  assert.strictEqual(await balanceOf(P), 500);                       // same side again: no second bonus yet
+  assert.strictEqual(await balanceOf(P), 800);                       // same side again: no second bonus yet, but a personal referral pays GH₵3 even when it spilled over
   await buy(P2);                                                      // r3
-  assert.strictEqual(await balanceOf(P), 1000);                      // other side: second GH₵5 (total GH₵10)
+  assert.strictEqual(await balanceOf(P), 1300);                      // other side: the second GH₵5
   assert.strictEqual((await fulfill('r3', 5000)).already, true);     // a retry of the same payment does nothing
-  assert.strictEqual(await balanceOf(P), 1000);
+  assert.strictEqual(await balanceOf(P), 1300);
   const P4 = await mk('P4', P, 'L'), P5 = await mk('P5', P, 'L'), P6 = await mk('P6', P, 'R'), P7 = await mk('P7', P, 'R');
-  await buy(P4); await buy(P5);                                       // 2 new on the left
-  assert.strictEqual(await balanceOf(P), 1000);                      // nothing on the right yet: no pair bonus
+  await buy(P4); await buy(P5);                                       // 2 new on the left, each a GH₵3 personal referral
+  assert.strictEqual(await balanceOf(P), 1900);                      // nothing on the right yet: no pair bonus
   await buy(P6);
-  assert.strictEqual(await balanceOf(P), 1000);
+  assert.strictEqual(await balanceOf(P), 2200);
   await buy(P7);                                                      // r7: 2 new on each side, though P did not refer them directly under him
-  assert.strictEqual(await balanceOf(P), 1500);                      // pair bonus GH₵5
+  assert.strictEqual(await balanceOf(P), 3000);                      // GH₵3 personal referral + GH₵5 pair bonus
   assert.strictEqual((await q('SELECT cycles_paid AS n FROM members WHERE id=$1', [P])).rows[0].n, 1);
   assert.strictEqual((await fulfill('r7', 5000)).already, true);
-  assert.strictEqual(await balanceOf(P), 1500);                      // no double payment
+  assert.strictEqual(await balanceOf(P), 3000);                      // no double payment
   assert.strictEqual(await balanceOf(P1), 0);                        // P1 was not the sponsor and has no bonuses of its own
   // The first paying referral can sit deep in the tree and still pays the sponsor
   const Q = await mk('Q', null), Q1 = await mk('Q1', Q, 'L'), Q2 = await mk('Q2', Q, 'L'), Q3 = await mk('Q3', Q, 'R');
   await buy(Q2);
   assert.strictEqual(await balanceOf(Q), 500);
-  await buy(Q1);                                                      // same side as the first: no second bonus
-  assert.strictEqual(await balanceOf(Q), 500);
+  await buy(Q1);                                                      // same side as the first: no second bonus, but a GH₵3 personal referral
+  assert.strictEqual(await balanceOf(Q), 800);
   await buy(Q3);                                                      // the other side
-  assert.strictEqual(await balanceOf(Q), 1000);
+  assert.strictEqual(await balanceOf(Q), 1300);
   await q("INSERT INTO purchases(member_id,reference,amount,status,created) VALUES($1,'again',5000,'pending','now')", [Q3]);
   await fulfill('again', 5000);                                       // a second payment by the same member pays nothing
-  assert.strictEqual(await balanceOf(Q), 1000);
+  assert.strictEqual(await balanceOf(Q), 1300);
   assert.strictEqual((await fulfill('nope', 5000)).ok, false);
   await q("INSERT INTO purchases(member_id,reference,amount,status,created) VALUES($1,'low',5000,'pending','now')", [F]);
   assert.strictEqual((await fulfill('low', 4000)).ok, false);        // underpaid is rejected
