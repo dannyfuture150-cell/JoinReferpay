@@ -12,7 +12,7 @@ if (testUrl === process.env.DATABASE_URL) { console.error('TEST_DATABASE_URL mus
 process.env.DATABASE_URL = testUrl;
 
 const { q, init, pool } = require('./db');
-const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMember, completeSignup, processPayment, withdraw, coinStatus, convertCoins, withdrawalTotals, holdCutoff, nextRelease, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup, normPhone, envNum } = require('./core');
+const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMember, completeSignup, processPayment, withdraw, coinStatus, convertCoins, withdrawalTotals, trueUp, holdCutoff, nextRelease, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup, normPhone, envNum } = require('./core');
 
 (async () => {
   process.env.REWARD_HOLD_HOURS = '0'; // the main scenarios ignore the waiting period; it is tested separately at the end
@@ -335,6 +335,21 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   assert.deepStrictEqual([b.total, b.pending, b.available], [500, 0, 500]);
   assert.strictEqual((await withdraw(MD, 500, opts(okPs))).ok, true);
   process.env.REWARD_HOLD_HOURS = '0';
+
+  // Catch-up for older sign-ups: GH₵3 for unpaid personal referrals, and old-rate pair bonuses raised to GH₵5
+  const TS = await mk('TS', null);
+  const T1 = await mk('T1', TS, 'L'), T2 = await mk('T2', TS, 'R'), T3 = await mk('T3', TS, 'L'), T4 = await mk('T4', TS, 'R');
+  await q("INSERT INTO ledger(member_id,kind,amount,ref,src_id,created) VALUES($1,'bonus',500,'bonus1:legacy',$2,'2020-01-01T00:00:00.000Z')", [TS, T1]);   // T1 was already paid
+  await q("INSERT INTO ledger(member_id,kind,amount,ref,src_id,created) VALUES($1,'cycle',300,'cycle:legacy:1',$2,'2020-01-01T00:00:00.000Z')", [TS, T4]);  // a pair bonus paid at the old GH₵3
+  const before = await balanceOf(TS);
+  const pv = await trueUp(false);
+  assert.strictEqual(await balanceOf(TS), before);                                                 // a preview changes nothing
+  assert.ok(pv.personal.count >= 3 && pv.cycles.count >= 1);
+  await trueUp(true);
+  assert.strictEqual(await balanceOf(TS), before + 3 * 300 + 200);                                 // T2, T3, T4 pay GH₵3 each, and the old pair bonus gains GH₵2
+  const again = await trueUp(true);
+  assert.deepStrictEqual([again.personal.count, again.cycles.count], [0, 0]);                       // nothing is ever paid twice
+  assert.strictEqual(await balanceOf(TS), before + 3 * 300 + 200);
 
   console.log('All database tests passed');
   await pool.end();

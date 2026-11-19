@@ -73,6 +73,10 @@ async function load(force) {
     <p><b>${esc(p.name)}</b><br>MoMo ${esc(p.phone)} (${esc(p.network)})<br>Requested ${money(p.amount)}, minus ${money(p.fee)} fee</p>
     <p>Send it from your MoMo first, then tap Mark as paid.</p>
     <div class="row"><button data-a="paid" data-id="${p.id}" data-t="${money(p.amount - p.fee)} to ${esc(p.name)} ${esc(p.phone)}">Mark as paid</button><button class="alt" data-a="reject-p" data-id="${p.id}">Reject and refund</button></div></div>`).join("") : "<p>Nothing waiting.</p>"}
+  <h2>Catch up past earnings</h2>
+  <div class="card"><p>Brings earnings from sign-ups made under an older plan in line with the current one: GH₵3 for personal referrals that were never paid, and the extra for pair bonuses paid at a lower rate. Applying it twice pays nothing more.</p>
+    <button class="alt" id="tub" style="width:100%">Preview</button><p id="tuo" style="color:var(--text)"></p>
+    <button id="tua" style="width:100%;display:none">Apply now</button><p class="err" id="tue"></p></div>
   <h2>Reset a member's password</h2>
   <div class="card"><p>Type the member's phone number to make a one-time code (valid 30 minutes). Send it to them on WhatsApp. They use it on Forgot password.</p>
     <input id="rp" inputmode="tel" placeholder="Member's phone (0551234567)"><button id="rpb" style="width:100%">Make a reset code</button><p class="g" id="rpo" style="font-size:18px"></p><p class="err" id="rpe"></p></div>
@@ -90,6 +94,22 @@ async function load(force) {
     $("post").disabled = true;
     try { await call("/announcements", "POST", { message: msg }); $("ann").value = ""; await load(true); }
     catch (e) { $("e2").textContent = e.message; $("post").disabled = false; }
+  };
+  let tuTotal = 0;
+  $("tub").onclick = async () => {
+    $("tuo").textContent = ""; $("tue").textContent = ""; $("tua").style.display = "none";
+    try {
+      const t = await call("/trueup"); tuTotal = t.personal.total + t.cycles.total;
+      $("tuo").textContent = tuTotal ? `${t.personal.count} personal referral bonuses (${money(t.personal.total)}) and ${t.cycles.count} pair bonuses to raise (${money(t.cycles.total)}). Total ${money(tuTotal)} for ${t.members} members.` : "Nothing to catch up.";
+      if (tuTotal) $("tua").style.display = "block";
+    } catch (e) { $("tue").textContent = e.message; }
+  };
+  $("tua").onclick = async () => {
+    if (!confirm("Credit " + money(tuTotal) + " to members now? This cannot be undone.")) return;
+    $("tua").disabled = true;
+    try { const t = await call("/trueup", "POST"); $("tuo").textContent = "Done. Credited " + money(t.personal.total + t.cycles.total) + " to " + t.members + " members."; $("tua").style.display = "none"; }
+    catch (e) { $("tue").textContent = e.message; }
+    $("tua").disabled = false;
   };
   $("rpb").onclick = async () => {
     $("rpo").textContent = ""; $("rpe").textContent = "";

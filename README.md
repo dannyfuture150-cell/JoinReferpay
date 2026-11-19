@@ -42,7 +42,7 @@ mobile money, straight from your Paystack balance. The wait gives you time to co
    - `PAYSTACK_SECRET_KEY`: your `sk_test_...` key
    - `SESSION_SECRET` and `ADMIN_KEY`: long random strings (the Blueprint generates them; view them in the Environment tab)
    - `NODE_VERSION`: `20`
-   - optional: `PRODUCT_PRICE_GHS`, `PAYOUT_MIN_GHS`, `WITHDRAW_FEE_GHS`, `REQUIRE_REFERRAL`, `REWARD_MAX_LEVELS`
+   - optional: `PRODUCT_PRICE_GHS`, `PAYOUT_MIN_GHS`, `WITHDRAW_FEE_PERCENT`, `REQUIRE_REFERRAL`, `REWARD_MAX_LEVELS`
 4. When Render gives you your address (like `https://referpay.onrender.com`), you do not need to set `BASE_URL`
    (the app reads Render's address), but you can set it if you use your own domain.
 5. Open your address. Sign up the **first member** without a referral code and pay the GH₵50 (a test payment in test
@@ -125,6 +125,22 @@ chat with `SUPPORT_WHATSAPP` (default 0200835049) with the member's name and ref
   - **Resend:** its free plan only delivers to YOUR OWN address until you verify a domain, so it cannot email members yet.
   - **Gmail SMTP:** needs a PAID Render plan (the free plan blocks the ports).
   Set `EMAIL_MEMBERS=false` to stop member emails. Without any provider nothing is sent and the app still works. Each sign-up can email several people, so watch the daily limit.
+
+## Withdrawal fee
+Each withdrawal costs **1%** of the amount (`WITHDRAW_FEE_PERCENT`, default 1), for example GH₵0.10 on GH₵10 and GH₵1 on GH₵100. The member sees what they will receive before they
+confirm, and the admin page shows the exact amount to send. In Paystack mode, Paystack also charges you its own transfer fee (about GH₵1 per mobile money transfer),
+which a 1% fee only covers on withdrawals of GH₵100 or more.
+
+## Catch up past earnings
+Earnings are paid at the rates in force on the day a person joined, so sign-ups from before a plan change keep their old amounts. The admin page has **Catch up past earnings**:
+**Preview** shows how many personal referral bonuses (GH₵3) were never paid and how many pair bonuses were paid below the current rate, with the total cost. **Apply now**
+credits the difference once (applying twice pays nothing more). Credits follow the usual 12:00 am release. Check the total before you apply, because it is real money you owe.
+
+## Install as an app
+The site can be installed on a phone like an app. Home has an **Install the app** card and the ☰ menu has an **Install app** button. On Android (Chrome) it shows the
+real install prompt. On iPhone it explains: tap Share in Safari, then Add to Home Screen. Once installed, the card and menu item disappear. The files that make this work are
+`manifest.webmanifest`, `sw.js` and the four `icon` / `apple-touch-icon` PNG files in the project root. Upload them with everything else. The service worker keeps only the
+page itself (so it can open without signal) and never stores anything under `/api` or `/admin`.
 
 ## Coins
 Every **3 paid people who join with a member's own code** earns that member **1 coin**, even if those people end up

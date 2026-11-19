@@ -7,7 +7,7 @@ const ps = require('./paystack');
 const { FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
 // Most that sign-up can cost in rewards on average: the sponsor bonus plus pair bonuses for up to MAX_LEVELS members above
 const REWARD_MAX = Math.round(FIRST_REFERRAL + (CYCLE_BONUS / (2 * CYCLE_PEOPLE_PER_SIDE)) * MAX_LEVELS);
-const { createResetCode, completeReset, normPhone, envNum, NETWORKS, now, balances, holdCutoff, nextRelease, midnightMode, createMember, completeSignup, processPayment, fulfill, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup } = require('./core');
+const { trueUp, createResetCode, completeReset, normPhone, envNum, NETWORKS, now, balances, holdCutoff, nextRelease, midnightMode, createMember, completeSignup, processPayment, fulfill, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup } = require('./core');
 
 const PORT = process.env.PORT || 3000;
 const BASE_URL = (process.env.BASE_URL || (process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`)).replace(/\/$/, '');
@@ -15,7 +15,8 @@ const SECRET = process.env.SESSION_SECRET || '';
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const PRICE = Math.round(envNum(process.env.PRODUCT_PRICE_GHS, 50) * 100);
 const PAYOUT_MIN = Math.round(envNum(process.env.PAYOUT_MIN_GHS, 5) * 100);
-const FEE = Math.round(envNum(process.env.WITHDRAW_FEE_GHS, 1) * 100); // Paystack charges GH₵1 per mobile money transfer; passed on to the member
+const FEE_PCT = envNum(process.env.WITHDRAW_FEE_PERCENT, 1);          // the withdrawal fee is a percentage of the amount withdrawn (default 1%)
+const feeFor = (gross) => Math.round(gross * FEE_PCT / 100);          // in pesewas, for example 1% of GH₵10.00 is GH₵0.10
 // WhatsApp: support number (set SUPPORT_WHATSAPP to change it) and the channel link (set WHATSAPP_CHANNEL_URL).
 const SUPPORT_WA = (() => {
   let n = String(process.env.SUPPORT_WHATSAPP || '0200835049').replace(/[\s\-().+]/g, '');
@@ -172,6 +173,17 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50kb' }));
 // The whole app is one page, index.html. It can sit next to server.js (flat upload) or inside a public/ folder.
 const fs = require('fs');
+// Files that let the site be installed like an app (and nothing else in the project folder is ever served).
+const APP_FILES = { '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'], '/sw.js': ['sw.js', 'application/javascript'],
+  '/icon-192.png': ['icon-192.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'],
+  '/icon-maskable-512.png': ['icon-maskable-512.png', 'image/png'], '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'] };
+Object.entries(APP_FILES).forEach(([route, [file, type]]) => app.get(route, (req, res) => {
+  const p = path.join(__dirname, file);
+  if (!fs.existsSync(p)) return res.sendStatus(404);
+  res.set('Content-Type', type);
+  res.set('Cache-Control', route === '/sw.js' ? 'no-cache' : 'public, max-age=86400'); // the service worker must always be fresh
+  res.sendFile(p);
+}));
 const ADMIN_PAGE = path.join(__dirname, 'admin.html');
 app.get('/admin', (req, res) => (fs.existsSync(ADMIN_PAGE) ? res.sendFile(ADMIN_PAGE) : res.status(404).send('admin.html is missing from the project.')));
 const INDEX = [path.join(__dirname, 'index.html'), path.join(__dirname, 'public', 'index.html')].find((p) => fs.existsSync(p));
@@ -189,7 +201,7 @@ app.get('/api/health', (_, res) => res.json({ ok: true, mode: MODE, build: 'manu
 app.get('/api/config', (_, res) => res.json({
   price: PRICE, rewardMax: REWARD_MAX, mode: MODE,
   rules: { first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, levels: MAX_LEVELS,
-    referralsPerCoin: REFERRALS_PER_COIN, coinsPerCashout: COINS_PER_CASHOUT, cashout: COIN_CASHOUT, payoutMin: PAYOUT_MIN, fee: FEE, midnight: midnightMode() },
+    referralsPerCoin: REFERRALS_PER_COIN, coinsPerCashout: COINS_PER_CASHOUT, cashout: COIN_CASHOUT, payoutMin: PAYOUT_MIN, feePercent: FEE_PCT, midnight: midnightMode() },
   support: { whatsapp: SUPPORT_WA, channelUrl: CHANNEL_URL },
 }));
 
@@ -351,7 +363,7 @@ app.get('/api/me', auth, wrap(async (req, res) => {
   res.json({
     awaiting, merchant: MODE === 'manual' ? { name: MERCHANT.name, number: MERCHANT.number, network: MERCHANT.network } : null,
     id: m.id, phone: m.phone, network: m.network, name: m.name, code: m.code, active: !!m.active, balance: balance.available, pendingAmount: balance.pending, holdCutoff: holdCutoff(), nextRelease: await nextRelease(m.id), midnight: midnightMode(), mode: MODE,
-    price: PRICE, payoutMin: PAYOUT_MIN, fee: FEE, rewards: { first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, max: REWARD_MAX },
+    price: PRICE, payoutMin: PAYOUT_MIN, feePercent: FEE_PCT, rewards: { first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, max: REWARD_MAX },
     bonus: { stage: m.bonus_stage, cycles: m.cycles_paid,
       leftNew: Math.max(0, m.left_active - m.base_left - m.cycles_paid * CYCLE_PEOPLE_PER_SIDE),
       rightNew: Math.max(0, m.right_active - m.base_right - m.cycles_paid * CYCLE_PEOPLE_PER_SIDE) },
@@ -426,7 +438,8 @@ app.post('/api/payout', auth, wrap(async (req, res) => {
   if ((number !== req.member.phone || network !== req.member.network) && !(await checkPw(String(body.password || '').slice(0, 100), req.member.pass_hash))) {
     return bad(res, 'Enter your password to withdraw to a different number.', 403);
   }
-  const opts = { fee: FEE, min: PAYOUT_MIN, number, network };
+  const fee = feeFor(gross);
+  const opts = { fee, min: PAYOUT_MIN, number, network };
   const r = MODE === 'manual' ? await requestWithdrawal(req.member.id, gross, opts) : await withdraw(req.member.id, gross, { ps, ...opts });
   if (r.code === 'min') return bad(res, `Minimum withdrawal is GH₵${PAYOUT_MIN / 100}.`);
   if (r.code === 'inactive') return bad(res, 'Activate your account first.');
@@ -434,12 +447,12 @@ app.post('/api/payout', auth, wrap(async (req, res) => {
   if (r.code === 'pending') return bad(res, 'Your newest earnings are released at 12:00 am (midnight). Try a smaller amount, or come back after midnight.');
   if (!r.ok) return bad(res, 'Withdrawals are temporarily unavailable. Your balance is safe. Please try again later.', 503);
   if (MODE === 'manual') {
-    notify(`Withdrawal request\nName: ${req.member.name}\nSend to MoMo: ${number} (${network})\nSend: GH₵${(gross - FEE) / 100} (GH₵${gross / 100} minus GH₵${FEE / 100} fee)\nSend it by MoMo, then tap Mark as paid in the admin page.`,
-      `ReferPay: send GHS ${(gross - FEE) / 100} to ${clean(req.member.name)} ${number} (${network}). Then mark paid in admin.`);
+    notify(`Withdrawal request\nName: ${req.member.name}\nSend to MoMo: ${number} (${network})\nSend: GH₵${((gross - fee) / 100).toFixed(2)} (GH₵${(gross / 100).toFixed(2)} minus GH₵${(fee / 100).toFixed(2)} fee)\nSend it by MoMo, then tap Mark as paid in the admin page.`,
+      `ReferPay: send GHS ${((gross - fee) / 100).toFixed(2)} to ${clean(req.member.name)} ${number} (${network}). Then mark paid in admin.`);
   }
   emailMember(req.member.email, req.member.name, 'We received your withdrawal request',
-    `We received your request to withdraw ${gh(gross)}.\nYou will receive ${gh(gross - FEE)} (after the ${gh(FEE)} transfer fee) on mobile money number ${number} (${network}) once it has been sent.`);
-  res.json({ ok: true, id: r.id, status: r.status, received: gross - FEE });
+    `We received your request to withdraw ${gh(gross)}.\nYou will receive ${gh(gross - fee)} (after the ${gh(fee)} fee, ${FEE_PCT}%) on mobile money number ${number} (${network}) once it has been sent.`);
+  res.json({ ok: true, id: r.id, status: r.status, received: gross - fee });
 }));
 
 app.post('/api/coins/convert', auth, wrap(async (req, res) => {
@@ -466,6 +479,10 @@ app.post('/api/admin/announcements/:id/delete', adminAuth, wrap(async (req, res)
   if (r.rowCount !== 1) return bad(res, 'That announcement is already gone.', 404);
   res.json({ ok: true });
 }));
+
+// Catch-up for earnings from sign-ups made under an older plan. GET = preview only, POST = apply.
+app.get('/api/admin/trueup', adminAuth, wrap(async (req, res) => { res.json(await trueUp(false)); }));
+app.post('/api/admin/trueup', adminAuth, wrap(async (req, res) => { res.json(await trueUp(true)); }));
 
 // The merchant can give a member a reset code (for example over WhatsApp support). Valid for 30 minutes.
 app.post('/api/admin/reset-code', adminAuth, wrap(async (req, res) => {

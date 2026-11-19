@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f9d6b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ReferPay">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon-192.png">
 <title>ReferPay</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--text:#14181f;--muted:#6a7280;--accent:#0f9d6b;--accent-t:#fff;--line:#e3e6eb;--err:#c0392b;color-scheme:light}
@@ -110,6 +117,18 @@ function waitView(p) {
 }
 
 // Frequently asked questions. Numbers come from the server, so they always match the real rules.
+// Install as an app. Android Chrome offers a real install prompt; iPhone and others get short instructions.
+let deferredInstall = null;
+const isStandalone = () => (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferredInstall = e; });
+window.addEventListener("appinstalled", () => { deferredInstall = null; if (ME) appView(); });
+async function installApp(msgEl) {
+  if (deferredInstall) { const p = deferredInstall; deferredInstall = null; p.prompt(); try { await p.userChoice; } catch (e) {} if (ME) appView(); return; }
+  const say = (t) => (msgEl ? (msgEl.textContent = t) : alert(t));
+  say(/iphone|ipad|ipod/i.test(navigator.userAgent) ? "On iPhone: tap the Share button in Safari, then Add to Home Screen." : "Open your browser menu (the three dots) and tap Install app or Add to Home screen.");
+}
+if ("serviceWorker" in navigator) window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
+
 function faqHtml(c, m) {
   const r = c.rules || {}, sp = c.support || {}, M = money;
   const items = [
@@ -121,7 +140,7 @@ function faqHtml(c, m) {
     ["What are the left and right sides?", "Every member has a left side and a right side. You choose a side when you sign up under someone. If that spot is taken, you are placed in the next free spot further down that side, so people can end up under someone else."],
     ["Why is someone I referred sitting under another member?", "That is called spillover. They still count for your coins and your referral bonuses, and they still count toward your pair bonus."],
     ["When can I withdraw my earnings?", r.midnight ? `New earnings stay pending until 12:00 am (midnight). Then they move into your available balance. You can withdraw any amount from ${M(r.payoutMin)} up to your available balance. The Next payout card on the Home page shows what is coming.` : `New earnings stay pending for a short wait. Then they move into your available balance. You can withdraw any amount from ${M(r.payoutMin)} up to your available balance.`],
-    ["How do withdrawals work?", `Open the Withdraw tab, enter an amount and tap Withdraw now. A ${M(r.fee)} transfer fee applies. The merchant sends the money to the mobile money number you registered, then marks it paid. It shows as Waiting for merchant until then. If a request is rejected, the money returns to your balance.`],
+    ["How do withdrawals work?", `Open the Withdraw tab, enter an amount and tap Withdraw now. A ${r.feePercent}% fee applies (for example ${M(Math.round(1000 * r.feePercent / 100))} on a ${M(1000)} withdrawal). The merchant sends the money to the mobile money number you registered, then marks it paid. It shows as Waiting for merchant until then. If a request is rejected, the money returns to your balance.`],
     ["How long do withdrawals take?", "They are sent by hand, so they are not instant. If it has been more than a day, contact support."],
     ["I forgot my password. What do I do?", "On the sign-in page tap Forgot password. Enter your phone number and we send a 6-digit code by text message and email. Enter the code with a new password. If no code arrives, ask support on WhatsApp and they can give you one."],
     ["Can I withdraw to a different MoMo number?", "Yes. On the Withdraw tab you can change the MoMo number and network before you tap Withdraw now. If it is different from the number on your account you must enter your password, to keep your money safe. Changing the number on your account itself is not possible in the app yet, so contact support for that."],
@@ -256,6 +275,7 @@ function appView() {
     const annCard = m.announcements && m.announcements.length ? `<div class="card"><h2>📢 Announcements</h2>${m.announcements.map((a, i) => `<div style="padding:8px 0;${i ? "border-top:1px solid var(--line)" : ""}"><div style="white-space:pre-wrap">${esc(a.message)}</div><small>${esc(String(a.created).slice(0, 10))}</small></div>`).join("")}</div>` : "";
     const sp = m.support || {};
     const waText = encodeURIComponent("Hello, I need help with ReferPay. My name is " + m.name + " and my referral code is " + m.code + ".");
+    const installCard = isStandalone() ? "" : `<div class="card"><h2>📲 Install the app</h2><p>Add ReferPay to your home screen so it opens like a normal app.</p><p class="g" id="instmsg"></p><button id="inst">Install app</button></div>`;
     const channelCard = sp.channelUrl ? `<div class="card"><h2>Our WhatsApp channel</h2><p>Get news, updates and announcements from the team.</p><a class="btn" href="${esc(sp.channelUrl)}" target="_blank" rel="noopener">Join our WhatsApp channel</a></div>` : "";
     const supportCard = sp.whatsapp ? `<div class="card"><h2>Need help?</h2><p>Chat with our support team on WhatsApp. Your name and referral code are filled in for you.</p><a class="btn alt" href="https://wa.me/${esc(sp.whatsapp)}?text=${waText}" target="_blank" rel="noopener">Contact support on WhatsApp</a></div>` : "";
     const link = location.origin + "/?ref=" + m.code;
@@ -267,7 +287,7 @@ function appView() {
     <div class="grid"><div class="card" style="text-align:center"><small>Next payout</small><div class="big g">${money(m.pendingAmount)}</div><small>${m.pendingAmount > 0 ? (m.midnight ? "available to withdraw at 12:00 am" : "available to withdraw soon") + (hrs ? " (in about " + hrs + "h)" : "") : "nothing waiting right now"}</small></div><div class="card"><small>Total withdrawn</small><div class="big">${money(m.withdrawn.paid)}</div><small>${m.withdrawn.waiting > 0 ? money(m.withdrawn.waiting) + " waiting to be sent" : "paid out so far"}</small></div></div>
     ${bonusCard}${coinCard}<div class="card"><h2>Your referral link</h2><div class="row"><input id="lk" value="${esc(link)}" readonly><button id="cp">Copy</button></div>
     <p style="margin-top:10px">Code: <b>${esc(m.code)}</b>. You earn ${money(m.rewards.first)} when your first referral pays and ${money(m.rewards.second)} when someone pays on your other side. Every other person you refer yourself earns you ${money(m.rewards.personal)}, even if they end up under someone else. You also earn ${money(m.rewards.cycle)} each time ${m.rewards.perSide} new people join your left side and ${m.rewards.perSide} join your right, even if you did not refer them.</p></div>
-    ${channelCard}${supportCard}
+    ${installCard}${channelCard}${supportCard}
     <p class="err" id="err"></p>`;
   } else if (r === "downlines") {
     const tot = m.downlines.reduce((a, d) => a + d.earned, 0);
@@ -300,7 +320,7 @@ function appView() {
   } else {
     const can = m.balance >= m.payoutMin, st = { pending: "Waiting for merchant", processing: "Sending", paid: "Paid", failed: "Failed, refunded" };
     pg = `<div class="card"><h2>Withdraw to mobile money</h2>
-    <p>Available ${money(m.balance)}.${m.pendingAmount > 0 ? " Another " + money(m.pendingAmount) + (m.midnight ? " becomes available at 12:00 am." : " becomes available soon.") : ""} ${m.midnight ? "New earnings are released into your balance at 12:00 am (midnight) each day." : "New earnings are released into your balance after a short wait."} Withdraw any amount from ${money(m.payoutMin)} up to your balance, any time. A ${money(m.fee)} transfer fee applies. Choose below which mobile money number the money goes to.${m.mode === "manual" ? " The merchant sends it by mobile money after approving your request." : ""}</p>
+    <p>Available ${money(m.balance)}.${m.pendingAmount > 0 ? " Another " + money(m.pendingAmount) + (m.midnight ? " becomes available at 12:00 am." : " becomes available soon.") : ""} ${m.midnight ? "New earnings are released into your balance at 12:00 am (midnight) each day." : "New earnings are released into your balance after a short wait."} Withdraw any amount from ${money(m.payoutMin)} up to your balance, any time. A ${m.feePercent}% fee applies. Choose below which mobile money number the money goes to.${m.mode === "manual" ? " The merchant sends it by mobile money after approving your request." : ""}</p>
     <input id="amt" type="number" inputmode="decimal" min="${m.payoutMin / 100}" step="0.01" placeholder="Amount (GH₵)"><p id="rcv" class="mu" style="font-size:14px;min-height:20px"></p>
     <p style="margin-bottom:4px"><b>Send the money to this MoMo number</b></p>
     <input id="wno" inputmode="tel" value="${esc(m.phone)}" placeholder="MoMo number (0551234567)">
@@ -312,14 +332,16 @@ function appView() {
   }
   const inMenu = ["tree", "faq"], link = (t) => `<a href="#${t[0]}" class="${t[0] === r ? "on" : ""}">${t[1]}</a>`;
   $("app").innerHTML = `<div class="top"><button class="mb" id="mb" aria-label="Menu">☰</button><h1>Hi, ${esc(m.name)}</h1></div>
-  <div class="menu" id="menu" style="display:none">${tabs.filter((t) => inMenu.includes(t[0])).map(link).join("")}<button class="alt" id="out" style="margin-top:6px">Log out</button></div>
+  <div class="menu" id="menu" style="display:none">${tabs.filter((t) => inMenu.includes(t[0])).map(link).join("")}${isStandalone() ? "" : `<button class="alt" id="instm" style="margin-top:6px">Install app</button>`}<button class="alt" id="out" style="margin-top:6px">Log out</button></div>
   <div class="tabs">${tabs.filter((t) => !inMenu.includes(t[0])).map(link).join("")}</div>${pg}`;
+  if ($("inst")) $("inst").onclick = () => installApp($("instmsg"));
+  if ($("instm")) $("instm").onclick = () => { $("menu").style.display = "none"; installApp(null); };
   $("mb").onclick = () => { const mn = $("menu"); mn.style.display = mn.style.display === "none" ? "block" : "none"; };
   $("out").onclick = () => { setToken(null); ME = null; authView(); };
   if ($("cp")) $("cp").onclick = () => { try { navigator.clipboard.writeText($("lk").value); $("cp").textContent = "Copied"; } catch (e) { $("lk").select(); } };
   if ($("buy")) $("buy").onclick = async () => { $("buy").disabled = true; try { location.href = (await api("/checkout", {})).url; } catch (e) { $("err").textContent = e.message; $("buy").disabled = false; } };
   if ($("conv")) $("conv").onclick = async () => { $("conv").disabled = true; try { await api("/coins/convert", {}); await boot(); } catch (e) { $("cerr").textContent = e.message; $("conv").disabled = false; } };
-  if ($("amt")) $("amt").oninput = () => { const v = parseFloat($("amt").value); $("rcv").textContent = v > 0 ? "You receive " + money(Math.max(0, Math.round(v * 100) - m.fee)) : ""; };
+  if ($("amt")) $("amt").oninput = () => { const v = parseFloat($("amt").value); $("rcv").textContent = v > 0 ? "You receive " + money(Math.max(0, Math.round(v * 100) - Math.round(v * 100 * m.feePercent / 100))) : ""; };
   if ($("all")) $("all").onclick = () => { $("amt").value = (m.balance / 100).toFixed(2); $("amt").oninput(); };
   const diff = () => { const n = $("wno").value.replace(/[\s\-().]/g, ""); return !(n === m.phone || n === "+233" + m.phone.slice(1) || n === "233" + m.phone.slice(1)) || $("wnet").value !== m.network; };
   const showPw = () => { if ($("wpw")) $("wpw").style.display = diff() ? "block" : "none"; };

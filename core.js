@@ -353,6 +353,31 @@ async function withdrawalTotals(memberId) {
     FROM payouts WHERE member_id=$1`, [memberId])).rows[0];
 }
 
+// ---- Catch-up: bring earnings from sign-ups made under an older plan in line with the current one ----
+//  - a personal referral that never paid its sponsor anything now pays PERSONAL_BONUS
+//  - a pair bonus that was paid at an older, lower rate is topped up to CYCLE_BONUS
+// Each correction has its own unique reference, so applying it twice never pays twice. Credits join the usual 12:00 am release.
+async function trueUp(apply = false) {
+  return tx(async (c) => {
+    const personal = (await c(`SELECT m.id AS buyer, m.sponsor_id AS sponsor FROM members m JOIN members s ON s.id=m.sponsor_id
+      WHERE m.active=1 AND s.active=1
+        AND NOT EXISTS (SELECT 1 FROM ledger l WHERE l.src_id=m.id AND l.member_id=m.sponsor_id AND l.kind='bonus')`)).rows;
+    const cycles = (await c(`SELECT l.id, l.member_id, l.src_id, l.amount FROM ledger l
+      WHERE l.kind='cycle' AND l.amount < $1 AND l.ref NOT LIKE 'fixcycle:%'
+        AND NOT EXISTS (SELECT 1 FROM ledger f WHERE f.ref = 'fixcycle:' || l.id)`, [CYCLE_BONUS])).rows;
+    if (apply) {
+      const ins = 'INSERT INTO ledger(member_id,kind,amount,ref,src_id,level,created) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (ref) DO NOTHING';
+      for (const p of personal) await c(ins, [p.sponsor, 'bonus', PERSONAL_BONUS, `bonus3:${p.buyer}`, p.buyer, null, now()]);
+      for (const r of cycles) await c(ins, [r.member_id, 'cycle', CYCLE_BONUS - r.amount, `fixcycle:${r.id}`, r.src_id, null, now()]);
+    }
+    return {
+      personal: { count: personal.length, total: personal.length * PERSONAL_BONUS },
+      cycles: { count: cycles.length, total: cycles.reduce((a, r) => a + CYCLE_BONUS - r.amount, 0) },
+      members: new Set([...personal.map((p) => p.sponsor), ...cycles.map((r) => r.member_id)]).size,
+    };
+  });
+}
+
 // ---- Password reset: a short code sent by text and email (or given by the merchant), valid for a few minutes ----
 const codeHash = (memberId, code) => crypto.createHmac('sha256', process.env.SESSION_SECRET || '').update(memberId + ':' + code).digest('hex');
 async function createResetCode(memberId, minutes = 15, skipLimit = false) {
@@ -390,4 +415,4 @@ async function downlines(id) {
     FROM d ORDER BY leg,lvl,name`, [id])).rows;
 }
 
-module.exports = { createResetCode, completeReset, normPhone, envNum, NETWORKS, now, balanceOf, balances, holdCutoff, nextRelease, midnightMode, place, fulfill, completeSignup, processPayment, createMember, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup };
+module.exports = { trueUp, createResetCode, completeReset, normPhone, envNum, NETWORKS, now, balanceOf, balances, holdCutoff, nextRelease, midnightMode, place, fulfill, completeSignup, processPayment, createMember, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup };
