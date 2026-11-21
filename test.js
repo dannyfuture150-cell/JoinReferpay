@@ -2,7 +2,7 @@ const assert = require('assert');
 const { FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS } = require('./commissions');
 
 // 1. Plan constants (always run)
-assert.deepStrictEqual([FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS], [500, 500, 300, 500, 2, 20]);
+assert.deepStrictEqual([FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS], [500, 500, 300, 500, 1, 10]);
 console.log('reward plan tests passed');
 
 // 2. Database tests. They need a SEPARATE, EMPTY Postgres database and WIPE it, so never point this at your live one.
@@ -56,14 +56,14 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   const P4 = await mk('P4', P, 'L'), P5 = await mk('P5', P, 'L'), P6 = await mk('P6', P, 'R'), P7 = await mk('P7', P, 'R');
   await buy(P4); await buy(P5);                                       // 2 new on the left, each a GH₵3 personal referral
   assert.strictEqual(await balanceOf(P), 1900);                      // nothing on the right yet: no pair bonus
-  await buy(P6);
-  assert.strictEqual(await balanceOf(P), 2200);
-  await buy(P7);                                                      // r7: 2 new on each side, though P did not refer them directly under him
-  assert.strictEqual(await balanceOf(P), 3000);                      // GH₵3 personal referral + GH₵5 pair bonus
-  assert.strictEqual((await q('SELECT cycles_paid AS n FROM members WHERE id=$1', [P])).rows[0].n, 1);
+  await buy(P6);                                                      // 1 new on the right pairs with a new one on the left
+  assert.strictEqual(await balanceOf(P), 2700);                      // GH₵3 personal referral + GH₵5 pair bonus
+  await buy(P7);                                                      // r7: the second left and second right make another pair
+  assert.strictEqual(await balanceOf(P), 3500);                      // GH₵3 personal referral + GH₵5 pair bonus
+  assert.strictEqual((await q('SELECT cycles_paid AS n FROM members WHERE id=$1', [P])).rows[0].n, 2);
   assert.strictEqual((await fulfill('r7', 5000)).already, true);
-  assert.strictEqual(await balanceOf(P), 3000);                      // no double payment
-  assert.strictEqual(await balanceOf(P1), 0);                        // P1 was not the sponsor and has no bonuses of its own
+  assert.strictEqual(await balanceOf(P), 3500);                      // no double payment
+  assert.strictEqual(await balanceOf(P1), 1000);                     // P1 was not the sponsor: only its own GH₵10 welcome bonus
   // The first paying referral can sit deep in the tree and still pays the sponsor
   const Q = await mk('Q', null), Q1 = await mk('Q1', Q, 'L'), Q2 = await mk('Q2', Q, 'L'), Q3 = await mk('Q3', Q, 'R');
   await buy(Q2);
@@ -75,6 +75,7 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   await q("INSERT INTO purchases(member_id,reference,amount,status,created) VALUES($1,'again',5000,'pending','now')", [Q3]);
   await fulfill('again', 5000);                                       // a second payment by the same member pays nothing
   assert.strictEqual(await balanceOf(Q), 1300);
+  assert.strictEqual(await balanceOf(Q3), 1000);                     // and no second welcome bonus
   assert.strictEqual((await fulfill('nope', 5000)).ok, false);
   await q("INSERT INTO purchases(member_id,reference,amount,status,created) VALUES($1,'low',5000,'pending','now')", [F]);
   assert.strictEqual((await fulfill('low', 4000)).ok, false);        // underpaid is rejected
@@ -142,14 +143,14 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   const sp = (await q("SELECT parent_id, side FROM members WHERE phone IN ('0244000013','0244000014')")).rows.map((r) => r.parent_id + r.side);
   assert.strictEqual(new Set(sp).size, 2);
 
-  // Pair bonuses only count people within the nearest 20 levels
+  // Pair bonuses only count people within the nearest 10 levels
   const TOP = await mk('TOP', null);
   let prev = TOP; const chain = [];
   for (let i = 0; i < 25; i++) { prev = await mk('N' + i, prev, 'L'); chain.push(prev); }
   await buy(prev);
   const lc = async (id) => (await q('SELECT left_active AS l FROM members WHERE id=$1', [id])).rows[0].l;
-  assert.strictEqual(await lc(chain[24 - 20]), 1);                    // 20 levels above the buyer: counted
-  assert.strictEqual(await lc(chain[24 - 21]), 0);                    // 21 levels above: not counted
+  assert.strictEqual(await lc(chain[24 - 10]), 1);                    // 10 levels above the buyer: counted
+  assert.strictEqual(await lc(chain[24 - 11]), 0);                    // 11 levels above: not counted
   assert.strictEqual(await lc(TOP), 0);
 
   // Coins: every 3 paid people sponsored with your code = 1 coin; 3 coins = GH₵5
@@ -328,6 +329,9 @@ const { fulfill, balanceOf, balances, downlines, refundPayout, place, createMemb
   b = await balances(MD);
   assert.deepStrictEqual([b.total, b.pending, b.available], [500, 500, 0]);
   assert.strictEqual((await withdraw(MD, 500, opts(okPs))).code, 'pending');                        // too early, wait for 12:00 am
+  b = await balances(MD1);
+  assert.deepStrictEqual([b.total, b.pending, b.available], [1000, 0, 1000]);                       // the welcome bonus skips the 12:00 am wait
+  assert.strictEqual((await withdraw(MD1, 500, opts(okPs))).ok, true);                              // and can be withdrawn at once
   const nr = await nextRelease(MD);
   assert.strictEqual(nr, new Date(Date.parse(holdCutoff()) + 24 * 3600e3).toISOString());          // the next midnight
   await q("UPDATE ledger SET created=$2 WHERE member_id=$1 AND kind IN ('reward','bonus','cycle')", [MD, new Date(Date.now() - 48 * 3600e3).toISOString()]); // pretend it was earned two days ago

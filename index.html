@@ -129,13 +129,15 @@ async function installApp(msgEl) {
 }
 if ("serviceWorker" in navigator) window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
 
+const whereText = (max, welcome) => `Up to ${money(max)} of it goes to rewards for members above you.${welcome > 0 ? " " + money(welcome) + " comes straight back to you as a welcome bonus." : ""} The rest covers platform costs and running the business.`;
 function faqHtml(c, m) {
   const r = c.rules || {}, sp = c.support || {}, M = money;
   const items = [
     ["How do I join?", `1) Get a referral code from the person who invited you. 2) Tap Create an account, fill in the form, enter the code and choose Left or Right. 3) Send ${M(c.price)} by mobile money to the merchant shown on the pay screen and enter your MoMo transaction ID. 4) Wait for the merchant to confirm. Then log in.`],
-    ["How much does it cost and where does the money go?", `Joining is a one-time ${M(c.price)}. Up to about ${M(c.rewardMax)} of it is paid out as rewards to members above you. The rest covers platform costs and running the business.`],
+    ["How much does it cost and where does the money go?", `Joining is a one-time ${M(c.price)}. ${whereText(c.rewardMax, r.welcome)}`],
     ["How long until my account is activated?", "The merchant checks your payment by hand and then approves it, so it can take a few hours or longer. Tap Check my payment status on the sign-in page, or message support with your reference and transaction ID."],
-    ["How do I earn?", `First referral: ${M(r.first)} when the first person you refer pays. Second referral: ${M(r.second)} more when someone you refer pays on your other side. Every other person you refer yourself: ${M(r.personal)}, even if they end up under someone else. Pair bonus: ${M(r.cycle)} each time ${r.perSide} new people join your left side and ${r.perSide} join your right, even if you did not refer them (people within ${r.levels} levels below you count). Coins: every ${r.referralsPerCoin} people who join with your code earns 1 coin, and ${r.coinsPerCashout} coins convert to ${M(r.cashout)}.`],
+    ["How do I earn?", `First referral: ${M(r.first)} when the first person you refer pays. Second referral: ${M(r.second)} more when someone you refer pays on your other side. Every other person you refer yourself: ${M(r.personal)}, even if they end up under someone else. Pair bonus: ${M(r.cycle)} each time you get ${r.perSide} new ${r.perSide === 1 ? "person" : "people"} on your left side and ${r.perSide} on your right, even if you did not refer them (people within ${r.levels} levels below you count). Coins: every ${r.referralsPerCoin} people who join with your code earns 1 coin, and ${r.coinsPerCashout} coins convert to ${M(r.cashout)}.`],
+    ...(r.welcome > 0 ? [["What is the welcome bonus?", `As soon as your payment is confirmed you get ${M(r.welcome)} added to your balance. You can withdraw it right away, without waiting for 12:00 am.`]] : []),
     ["Are earnings guaranteed?", "No. You only earn when people join the network. Nobody is promised any amount, and many members will earn less than they paid. Only join with money you can afford to lose."],
     ["What are the left and right sides?", "Every member has a left side and a right side. You choose a side when you sign up under someone. If that spot is taken, you are placed in the next free spot further down that side, so people can end up under someone else."],
     ["Why is someone I referred sitting under another member?", "That is called spillover. They still count for your coins and your referral bonuses, and they still count toward your pair bonus."],
@@ -191,7 +193,7 @@ function authView() {
   <input id="ref" placeholder="Referral code" value="${esc(refParam)}">
   <select id="side"><option value="">Join which side? (Left or Right)</option><option value="L">Left</option><option value="R">Right</option></select>` : ""}
   <input id="password" type="password" placeholder="Password (8+ characters)" autocomplete="${su ? "new-password" : "current-password"}">
-  ${su ? `<p>Joining costs ${money(CFG.price)} (mobile money or card). Up to ${money(CFG.rewardMax || 2000)} of it goes to rewards for members above you. The rest covers platform costs and running the business.</p>` : ""}<p class="err" id="err"></p><button id="go">${su ? (CFG.mode === "manual" ? "Continue to payment" : "Pay " + money(CFG.price) + " and sign up") : "Log in"}</button></div>
+  ${su ? `<p>Joining costs ${money(CFG.price)} (mobile money or card). ${whereText(CFG.rewardMax || 3000, (CFG.rules || {}).welcome)}</p>` : ""}<p class="err" id="err"></p><button id="go">${su ? (CFG.mode === "manual" ? "Continue to payment" : "Pay " + money(CFG.price) + " and sign up") : "Log in"}</button></div>
   ${su ? "" : `<p style="text-align:center"><a class="lnk" id="fpw">Forgot password?</a></p>`}
   <p style="text-align:center"><a class="lnk" id="sw">${su ? "I already have an account" : "Create an account"}</a></p><p style="text-align:center"><a class="lnk" id="faqlk">Read the FAQ</a></p>`;
   $("err").textContent = AUTHERR; AUTHERR = "";
@@ -219,7 +221,7 @@ function manualActivate(m) {
     ? `<div class="card"><h2>Waiting for confirmation</h2><p>Thank you. Once your payment is confirmed your account is activated. Tap below to check.</p>
        <p class="err" id="err"></p><p class="g" id="ok"></p><button id="chk">Check status</button></div>`
     : `<div class="card"><h2>Activate your account</h2><p style="font-size:26px;font-weight:700;color:var(--text)">${money(m.price)} <span style="font-size:14px;font-weight:400" class="mu">one-time</span></p>
-       <p>Up to ${money(m.rewards.max)} of this goes to rewards for members above you. The rest covers platform costs and running the business.</p>
+       <p>${whereText(m.rewards.max, m.rewards.welcome)}</p>
        <p class="mu" style="font-size:12px">Earnings are not guaranteed.</p>
        <p>Send exactly ${money(m.price)} by mobile money to:</p>
        <p style="font-size:18px;color:var(--text);margin:0"><b>${esc(g.name)}</b></p><p style="margin:0">${esc(g.network)} MoMo number</p>
@@ -243,7 +245,7 @@ function activateView() {
   $("app").innerHTML = `<h1>Hi, ${esc(m.name)}</h1>
   <div class="card"><h2>Activate your account</h2>
   <p style="font-size:26px;font-weight:700;color:var(--text)">${money(m.price)} <span style="font-size:14px;font-weight:400" class="mu">one-time</span></p>
-  <p>Up to ${money(m.rewards.max)} of this goes to rewards for members above you. The rest covers platform costs and running the business.</p>
+  <p>${whereText(m.rewards.max, m.rewards.welcome)}</p>
   <p class="mu" style="font-size:12px">Earnings are not guaranteed.</p>
   <p class="err" id="err"></p>
   <button id="buy">Pay ${money(m.price)} to activate</button>
@@ -286,7 +288,7 @@ function appView() {
     <div class="card"><div class="big">${nL}</div><small>Left side</small></div><div class="card"><div class="big">${nR}</div><small>Right side</small></div></div>
     <div class="grid"><div class="card" style="text-align:center"><small>Next payout</small><div class="big g">${money(m.pendingAmount)}</div><small>${m.pendingAmount > 0 ? (m.midnight ? "available to withdraw at 12:00 am" : "available to withdraw soon") + (hrs ? " (in about " + hrs + "h)" : "") : "nothing waiting right now"}</small></div><div class="card"><small>Total withdrawn</small><div class="big">${money(m.withdrawn.paid)}</div><small>${m.withdrawn.waiting > 0 ? money(m.withdrawn.waiting) + " waiting to be sent" : "paid out so far"}</small></div></div>
     ${bonusCard}${coinCard}<div class="card"><h2>Your referral link</h2><div class="row"><input id="lk" value="${esc(link)}" readonly><button id="cp">Copy</button></div>
-    <p style="margin-top:10px">Code: <b>${esc(m.code)}</b>. You earn ${money(m.rewards.first)} when your first referral pays and ${money(m.rewards.second)} when someone pays on your other side. Every other person you refer yourself earns you ${money(m.rewards.personal)}, even if they end up under someone else. You also earn ${money(m.rewards.cycle)} each time ${m.rewards.perSide} new people join your left side and ${m.rewards.perSide} join your right, even if you did not refer them.</p></div>
+    <p style="margin-top:10px">Code: <b>${esc(m.code)}</b>. You earn ${money(m.rewards.first)} when your first referral pays and ${money(m.rewards.second)} when someone pays on your other side. Every other person you refer yourself earns you ${money(m.rewards.personal)}, even if they end up under someone else. You also earn ${money(m.rewards.cycle)} each time you get ${m.rewards.perSide} new ${m.rewards.perSide === 1 ? "person" : "people"} on your left side and ${m.rewards.perSide} on your right, even if you did not refer them.</p></div>
     ${installCard}${channelCard}${supportCard}
     <p class="err" id="err"></p>`;
   } else if (r === "downlines") {
@@ -316,7 +318,7 @@ function appView() {
     pg = faqHtml(CFG, m);
   } else if (r === "earnings") {
     pg = `<div class="card"><h2>Earnings history</h2>${m.history.length ? `<div class="tw"><table><tr><th>Date</th><th>Type</th><th>From</th><th>Amount</th></tr>
-    ${m.history.map((h) => `<tr><td>${h.created.slice(0, 10)}</td><td>${["reward", "bonus", "cycle"].includes(h.kind) ? (h.kind === "bonus" ? "Referral bonus" : h.kind === "cycle" ? "Pair bonus" : "Reward L" + h.level) + (h.created > m.holdCutoff ? " (pending)" : "") : h.kind === "coin_cash" ? "Coins cash-out" : h.kind === "payout_hold" ? "Withdrawal" : "Refund"}</td><td>${esc(h.src || "")}</td><td class="${h.amount < 0 ? "mu" : "g"}">${h.amount < 0 ? "" : "+"}${money(h.amount)}</td></tr>`).join("")}</table></div>` : "<p>Nothing yet.</p>"}</div>`;
+    ${m.history.map((h) => `<tr><td>${h.created.slice(0, 10)}</td><td>${["reward", "bonus", "cycle"].includes(h.kind) ? (h.kind === "bonus" ? "Referral bonus" : h.kind === "cycle" ? "Pair bonus" : "Reward L" + h.level) + (h.created > m.holdCutoff ? " (pending)" : "") : h.kind === "coin_cash" ? "Coins cash-out" : h.kind === "welcome" ? "Welcome bonus" : h.kind === "payout_hold" ? "Withdrawal" : "Refund"}</td><td>${esc(h.src || "")}</td><td class="${h.amount < 0 ? "mu" : "g"}">${h.amount < 0 ? "" : "+"}${money(h.amount)}</td></tr>`).join("")}</table></div>` : "<p>Nothing yet.</p>"}</div>`;
   } else {
     const can = m.balance >= m.payoutMin, st = { pending: "Waiting for merchant", processing: "Sending", paid: "Paid", failed: "Failed, refunded" };
     pg = `<div class="card"><h2>Withdraw to mobile money</h2>

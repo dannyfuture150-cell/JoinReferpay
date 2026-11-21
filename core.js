@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { q, tx } = require('./db');
-const { MAX_LEVELS, FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
+const { WELCOME_BONUS, MAX_LEVELS, FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
 const PATH_LIMIT = 1000; // how far up the tree we ever look
 
 const now = () => new Date().toISOString();
@@ -79,6 +79,10 @@ async function fulfill(reference, amountPaid) {
     const prior = (await c("SELECT COUNT(*)::int AS n FROM purchases WHERE member_id=$1 AND status='paid' AND id<>$2", [p.member_id, p.id])).rows[0].n;
     await c('UPDATE members SET active=1 WHERE id=$1', [p.member_id]);
     if (prior > 0) return; // only the first purchase triggers rewards
+    if (WELCOME_BONUS > 0) { // the new member's own welcome bonus: not 'pending', so it can be withdrawn straight away
+      await c("INSERT INTO ledger(member_id,kind,amount,ref,created) VALUES($1,'welcome',$2,$3,$4) ON CONFLICT (ref) DO NOTHING", [p.member_id, WELCOME_BONUS, 'welcome:' + p.member_id, now()]);
+      earnedRows.push({ memberId: p.member_id, kind: 'welcome', amount: WELCOME_BONUS });
+    }
     // Every member above the buyer, nearest first, in ONE query. path[0] is the buyer.
     const path = (await c(`
       WITH RECURSIVE up(id,parent_id,side,lvl) AS (
@@ -118,7 +122,7 @@ async function fulfill(reference, amountPaid) {
     }
     for (const u of ups) await c('UPDATE members SET left_active=$2,right_active=$3,bonus_stage=$4,first_leg=$5,base_left=$6,base_right=$7,cycles_paid=$8 WHERE id=$1', u);
     if (!earn.length) return;
-    earnedRows = earn.map((e) => ({ memberId: e[0], kind: e[1], amount: e[2] }));
+    earnedRows.push(...earn.map((e) => ({ memberId: e[0], kind: e[1], amount: e[2] })));
     const vals = [], params = [];
     earn.forEach((e, i) => {
       const o = i * 7;

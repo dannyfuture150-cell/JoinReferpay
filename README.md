@@ -11,13 +11,15 @@ the fee only "maintenance" if most of it funds rewards, because that is misleadi
 consumer-protection law and Paystack's rules.
 
 Rewards (members must be active, which means they have paid):
+- **Welcome bonus:** GH₵10 to the new member themselves the moment their first payment is confirmed. It is available to withdraw straight away
+  (no wait for 12:00 am). Change it with `WELCOME_BONUS_GHS`, or set 0 to switch it off.
 - **First referral:** GH₵5 when the first person you referred with your code pays.
 - **Second referral:** another GH₵5 when someone you referred pays on your **other** side (GH₵10 in total).
 - **Every other personal referral:** GH₵3 each time someone you referred with your code pays, even if they ended up under someone else.
   (Your first two keep the GH₵5 amounts above.)
-- **Pair bonus:** after that, GH₵5 every time **2 new people join your left side and 2 new people join your right side**,
+- **Pair bonus:** after that, GH₵5 every time **1 new person joins your left side and 1 new person joins your right side**,
   even if you did not refer them. People anywhere below you count (spillover and deeper members), but only those within the
-  nearest 20 levels (`REWARD_MAX_LEVELS`), which keeps the cost per sign-up bounded.
+  nearest 10 levels (`REWARD_MAX_LEVELS`), which keeps the cost per sign-up bounded.
 
 Members see all their downlines combined. New earnings stay **pending until 12:00 am (midnight)**, when they move into the
 member's available balance. After that they can **withdraw any amount (from GH₵5) at any time** to their
@@ -136,6 +138,11 @@ Earnings are paid at the rates in force on the day a person joined, so sign-ups 
 **Preview** shows how many personal referral bonuses (GH₵3) were never paid and how many pair bonuses were paid below the current rate, with the total cost. **Apply now**
 credits the difference once (applying twice pays nothing more). Credits follow the usual 12:00 am release. Check the total before you apply, because it is real money you owe.
 
+## Welcome bonus: check the cost
+The GH₵10 welcome bonus comes out of the same GH₵50. Together with the other rewards (about GH₵30) and coins (about GH₵1) a sign-up can now cost up to about **GH₵41 of GH₵50**,
+leaving about GH₵9 for payment fees, SMS, hosting and you. That is thin. To make it safer, lower `REWARD_MAX_LEVELS` (for example 5, which brings the other rewards down to about GH₵17.50) or lower the welcome
+bonus. Only new sign-ups get it; people who joined earlier do not.
+
 ## Install as an app
 The site can be installed on a phone like an app. Home has an **Install the app** card and the ☰ menu has an **Install app** button. On Android (Chrome) it shows the
 real install prompt. On iPhone it explains: tap Share in Safari, then Add to Home Screen. Once installed, the card and menu item disappear. The files that make this work are
@@ -151,13 +158,12 @@ so this costs little next to the rewards.
 
 ## 5. Change the rewards
 Edit `commissions.js`: `FIRST_REFERRAL`, `SECOND_REFERRAL`, `PERSONAL_BONUS`, `CYCLE_BONUS` (pesewas, 500 = GH₵5),
-`CYCLE_PEOPLE_PER_SIDE` (2), and `MAX_LEVELS` (also set by `REWARD_MAX_LEVELS`, default 20). Product price: `PRODUCT_PRICE_GHS`.
+`CYCLE_PEOPLE_PER_SIDE` (1), and `MAX_LEVELS` (also set by `REWARD_MAX_LEVELS`, default 10). Product price: `PRODUCT_PRICE_GHS`.
 
-**Check your margins.** Every sign-up can complete a pair bonus for each member above it (within 20 levels), so on average
-each sign-up costs up to about GH₵5 / 4 = GH₵1.25 per level above it, up to about GH₵25 over 20 levels, plus up to GH₵5
-for the sponsor (at least GH₵3 on every sign-up, so costs sit near the top of the range): **about GH₵30 of each GH₵50**, and the cost per sign-up rises as the network gets deeper. Coins add roughly GH₵1
-per referral on top. That leaves about GH₵19 of each GH₵50 for platform costs and you. Lowering `REWARD_MAX_LEVELS` (for example to 10) lowers
-the cap to about GH₵17.50.
+**Check your margins.** A pair now completes with just 1 person on each side, so every sign-up can pay each member above it (within 10 levels)
+about GH₵5 / 2 = GH₵2.50 on average: up to about GH₵25 over 10 levels, plus up to GH₵5 for the sponsor (at least GH₵3 on every sign-up):
+**about GH₵30 of each GH₵50**. Coins add roughly GH₵1 per referral on top, leaving about GH₵19 for platform costs and you. **Do not raise `REWARD_MAX_LEVELS` above about 12**:
+at 20 levels one GH₵50 sign-up would pay out more than GH₵50 in pair bonuses. When a plan change makes pairs easier, members who already had people waiting are paid the extra pairs the next time someone joins under them.
 
 ## 6. Run the tests
 `npm install`, then create a SEPARATE empty Postgres database (a Neon branch works) and run:

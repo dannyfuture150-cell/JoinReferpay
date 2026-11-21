@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { q, init } = require('./db');
 const ps = require('./paystack');
-const { FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
+const { WELCOME_BONUS, FIRST_REFERRAL, SECOND_REFERRAL, PERSONAL_BONUS, CYCLE_BONUS, CYCLE_PEOPLE_PER_SIDE, MAX_LEVELS, REFERRALS_PER_COIN, COINS_PER_CASHOUT, COIN_CASHOUT } = require('./commissions');
 // Most that sign-up can cost in rewards on average: the sponsor bonus plus pair bonuses for up to MAX_LEVELS members above
 const REWARD_MAX = Math.round(FIRST_REFERRAL + (CYCLE_BONUS / (2 * CYCLE_PEOPLE_PER_SIDE)) * MAX_LEVELS);
 const { trueUp, createResetCode, completeReset, normPhone, envNum, NETWORKS, now, balances, holdCutoff, nextRelease, midnightMode, createMember, completeSignup, processPayment, fulfill, refundPayout, withdraw, downlines, coinStatus, convertCoins, withdrawalTotals, submitActivationPayment, rejectActivation, activateRoot, requestWithdrawal, markPayoutPaid, submitSignupPayment, rejectSignup } = require('./core');
@@ -96,7 +96,10 @@ async function earnedMail(r) {
   if (!r || !r.earned || !r.earned.length || process.env.EMAIL_MEMBERS === 'false') return;
   const buyer = (await q('SELECT name FROM members WHERE id=$1', [r.buyerId])).rows[0];
   const by = {};
-  r.earned.forEach((e) => { (by[e.memberId] = by[e.memberId] || []).push(e); });
+  for (const w of r.earned.filter((e) => e.kind === 'welcome')) {
+    await memberMail(w.memberId, 'Welcome to ReferPay: your welcome bonus', `Welcome! Your payment is confirmed and ${gh(w.amount)} has been added to your balance as a welcome bonus.\nYou can withdraw it right away.`);
+  }
+  r.earned.filter((e) => e.kind !== 'welcome').forEach((e) => { (by[e.memberId] = by[e.memberId] || []).push(e); });
   for (const id of Object.keys(by)) {
     const total = by[id].reduce((a, e) => a + e.amount, 0);
     const what = [...new Set(by[id].map((e) => (e.kind === 'cycle' ? 'Pair bonus' : 'Referral bonus')))].join(' and ');
@@ -200,7 +203,7 @@ app.use('/api/admin', limit(100, 600000)); // slows down anyone guessing the adm
 app.get('/api/health', (_, res) => res.json({ ok: true, mode: MODE, build: 'manual-activation-v1' }));
 app.get('/api/config', (_, res) => res.json({
   price: PRICE, rewardMax: REWARD_MAX, mode: MODE,
-  rules: { first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, levels: MAX_LEVELS,
+  rules: { welcome: WELCOME_BONUS, first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, levels: MAX_LEVELS,
     referralsPerCoin: REFERRALS_PER_COIN, coinsPerCashout: COINS_PER_CASHOUT, cashout: COIN_CASHOUT, payoutMin: PAYOUT_MIN, feePercent: FEE_PCT, midnight: midnightMode() },
   support: { whatsapp: SUPPORT_WA, channelUrl: CHANNEL_URL },
 }));
@@ -363,7 +366,7 @@ app.get('/api/me', auth, wrap(async (req, res) => {
   res.json({
     awaiting, merchant: MODE === 'manual' ? { name: MERCHANT.name, number: MERCHANT.number, network: MERCHANT.network } : null,
     id: m.id, phone: m.phone, network: m.network, name: m.name, code: m.code, active: !!m.active, balance: balance.available, pendingAmount: balance.pending, holdCutoff: holdCutoff(), nextRelease: await nextRelease(m.id), midnight: midnightMode(), mode: MODE,
-    price: PRICE, payoutMin: PAYOUT_MIN, feePercent: FEE_PCT, rewards: { first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, max: REWARD_MAX },
+    price: PRICE, payoutMin: PAYOUT_MIN, feePercent: FEE_PCT, rewards: { welcome: WELCOME_BONUS, first: FIRST_REFERRAL, second: SECOND_REFERRAL, personal: PERSONAL_BONUS, cycle: CYCLE_BONUS, perSide: CYCLE_PEOPLE_PER_SIDE, max: REWARD_MAX },
     bonus: { stage: m.bonus_stage, cycles: m.cycles_paid,
       leftNew: Math.max(0, m.left_active - m.base_left - m.cycles_paid * CYCLE_PEOPLE_PER_SIDE),
       rightNew: Math.max(0, m.right_active - m.base_right - m.cycles_paid * CYCLE_PEOPLE_PER_SIDE) },
